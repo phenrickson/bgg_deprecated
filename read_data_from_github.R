@@ -15,7 +15,7 @@ con <- dbConnect(odbc(),
                  Port = 1433)
 
 # source function for reading data 
-source("get_bgg_data_from_github.R")
+source("functions/get_bgg_data_from_github.R")
 
 # get todays data from bgg
 bgg_today<-get_bgg_data_from_github(Sys.Date())
