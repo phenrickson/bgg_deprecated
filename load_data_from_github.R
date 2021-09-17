@@ -6,13 +6,13 @@ library(magrittr)
 library(odbc)
 
 # establish connection to AE Lab
-con <- dbConnect(odbc(),
-                 Driver = "ODBC Driver 17 for SQL Server",
-                 Server = "aelabdb.aebslab.local",
-                 Database = keyring::key_list("AE_LAB") %$% service,
-                 UID = keyring::key_list("AE_LAB") %$% username,
-                 PWD = keyring::key_get("AE_LAB", keyring::key_list("AE_LAB") %$% username),
-                 Port = 1433)
+# con <- dbConnect(odbc(),
+#                  Driver = "ODBC Driver 17 for SQL Server",
+#                  Server = "aelabdb.aebslab.local",
+#                  Database = keyring::key_list("AE_LAB") %$% service,
+#                  UID = keyring::key_list("AE_LAB") %$% username,
+#                  PWD = keyring::key_get("AE_LAB", keyring::key_list("AE_LAB") %$% username),
+#                  Port = 1433)
 
 # source function for reading data 
 source("functions/get_bgg_data_from_github.R")
