@@ -5,7 +5,7 @@ library(tidyverse)
 library(magrittr)
 library(odbc)
 
-# establish connection
+# establish connection to AE Lab
 con <- dbConnect(odbc(),
                  Driver = "ODBC Driver 17 for SQL Server",
                  Server = "aelabdb.aebslab.local",

@@ -33,29 +33,47 @@ games_xml<-games_obj$xml
 games_data<-games_obj$data %>%
         as_tibble()
 
+
+### load table
+
+
 ### create look up tables
 # categories
-category_table<-games_data %>%
+category_check<-games_data %>%
         select(objectid, starts_with("category")) %>%
-        # mutate(categorys = gsub("Deck, Bag, and Pool Building", "Deck Back and Pool Building", categorys)) %>%
-        # mutate(categorys = gsub("Worker Placement, Different Worker Types", "Worker Placement: Different Worker Types", categorys)) %>%
-        # mutate(categorys = gsub("Worker Placement with Dice Workers", "Worker Placement: Dice Workers", categorys)) %>%
         cSplit(., splitCols = c("category", "categoryid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long") 
-        rename(category_id = categoryid,
-               category = categorys) %>%
+
+# check for NAs
+assertthat::see_if(sum(is.na(category_check)) ==0)
+assertthat::assert_that(sum(is.na(category_check)) ==0)
+
+# no NAs
+category_table<-category_check %>%
+        rename(category_id = categoryid) %>%
         select(category_id, category) %>%
         mutate(category_id = as.integer(category_id)) %>%
         unique() %>%
         arrange(category_id) %>%
         as_tibble()
 
+# rm temp table
+rm(category_check)
+
 # mechanics
-mechanics_table<-games_data %>%
+mechanics_check<-games_data %>%
         select(objectid, starts_with("mechanic")) %>%
         mutate(mechanics = gsub("Deck, Bag, and Pool Building", "Deck Back and Pool Building", mechanics)) %>%
+        mutate(mechanics = gsub("I Cut, You Choose", "I Cut You Choose", mechanics)) %>%
         mutate(mechanics = gsub("Worker Placement, Different Worker Types", "Worker Placement: Different Worker Types", mechanics)) %>%
         mutate(mechanics = gsub("Worker Placement with Dice Workers", "Worker Placement: Dice Workers", mechanics)) %>%
-        cSplit(., splitCols = c("mechanics", "mechanicsid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long") %>%
+        cSplit(., splitCols = c("mechanics", "mechanicsid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long")
+
+# checks
+assertthat::see_if(sum(is.na(mechanics_check)) ==0)
+assertthat::assert_that(sum(is.na(mechanics_check)) ==0)
+
+# no NAs
+mechanics_table <- mechanics_check %>%
         rename(mechanic_id = mechanicsid,
                mechanic = mechanics) %>%
         select(mechanic_id, mechanic) %>%
@@ -64,11 +82,31 @@ mechanics_table<-games_data %>%
         arrange(mechanic_id) %>%
         as_tibble()
 
+rm(mechanics_check)
+
 # designers
-designers_table<-games_data %>%
-        select(objectid, starts_with("designer")) %>%
+designers_check<-games_data %>%
+        select(objectid, starts_with("designers")) %>%
+        mutate(designers = gsub("Drakes, Jarvis, Walsh, and Gluck, Ltd.", "Drakes Jarvis Walsh and Gluck Ltd.", designers)) %>%
+        mutate(designers = gsub("CHEN,JHAO-RU", "CHEN JHAO-RU", designers)) %>%
         mutate(designers = gsub("\\)", "", gsub("\\(", "", designers))) %>%
-        cSplit(., splitCols = c("designers", "designersid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long") %>%
+        mutate(designers = gsub(", Jr.", "Jr.", gsub("\\(", "", designers))) %>%
+        mutate(designers = gsub(", II", "II", gsub("\\(", "", designers))) %>%
+        mutate(designers = gsub(", M.C.", "M.C.", gsub("\\(", "", designers))) %>%
+        mutate(designers = gsub(", III", "III", gsub("\\(", "", designers))) %>%
+        mutate(designers = gsub(", IV", "IV", gsub("\\(", "", designers))) %>%
+        mutate(designers = gsub(", Ph.D.", "PhD", gsub("\\(", "", designers))) %>%
+        mutate(designers = gsub(", PhD", "PhD", gsub("\\(", "", designers))) %>%
+        mutate(designers = gsub(", Inc.", "Inc.", designers)) %>%
+        mutate(designers = gsub(", Ltd.", "Ltd.", designers)) %>%
+        mutate(designers = gsub(", LLC", "LLC", designers)) %>%
+        cSplit(., splitCols = c("designers", "designersid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long")
+
+# checks
+assertthat::see_if(sum(is.na(designers_check)) ==0)
+assertthat::assert_that(sum(is.na(designers_check)) ==0)
+
+designers_table <- designers_check %>%
         rename(designer = designers,
                designer_id = designersid) %>%
         select(designer_id, designer) %>% 
@@ -79,13 +117,56 @@ designers_table<-games_data %>%
 
 
 # publishers
-publishers_table<-games_data %>%
+publishers_check<-games_data %>%
         select(objectid, starts_with("publisher")) %>%
-        mutate(publishers = gsub("\\)", "", gsub("\\(", "", publishers))) %>%
-        mutate(publishers = gsub(", Inc.", "Inc.", publishers)) %>%
-        mutate(publishers = gsub(", Ltd.", "Ltd.", publishers)) %>%
-        mutate(publishers = gsub(", LLC", "LLC", publishers)) %>%
-        cSplit(., splitCols = c("publishers", "publishersid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long") %>%
+        mutate(publishers = gsub("Tantrix Games Ibérica, S. L., Tantrix Games Ltd.", "Tantrix Games Iberica SL Tantrix Games Ltd", publishers)) %>%
+        mutate(publishers = gsub("Ministerium für Umwelt, Raumordnung und Landwirtschaft", "Ministerium für Umwelt, Raumordnung und Landwirtschaft", publishers)) %>%
+        mutate(publishers = gsub("Unipart Verlag, Usborne", "Unipart Verlag Usborne", publishers)) %>%
+        mutate(publishers = gsub("Unipart Verlag, Usborne", "Unipart Verlag Usborne", publishers)) %>%
+        mutate(publishers = gsub("Sage, Sons & Co", "Sage Sons & Co", publishers)) %>%
+        mutate(publishers = gsub("Aires, Fanha e Raposo", "Aires Fanha e Raposa", publishers)) %>%
+        mutate(publishers = gsub("Mann, Ivanov, and Ferber", "Mann Ivanov and Ferber", publishers)) %>%
+        mutate(publishers = gsub("Cayro, the games", "Cayro the games", publishers)) %>%
+        mutate(publishers = gsub("\\.", "", gsub("\\)", "", gsub("\\(", "", publishers)))) %>%
+        mutate(publishers = gsub(", Co", " Co", publishers)) %>%
+        mutate(publishers = gsub(", Inc",  " Inc", publishers))
+        mutate(publishers = gsub(", Inc ",  " Inc", publishers)) %>%
+        mutate(publishers = gsub(", INC ",  " Inc", publishers)) %>%
+        mutate(publishers = gsub(", Ltd", " Ltd", publishers)) %>%
+        mutate(publishers = gsub(", LTD", " Ltd", publishers)) %>%
+        mutate(publishers = gsub(", Lda", " Lda", publishers)) %>%
+        mutate(publishers = gsub(", llc", " LLC", publishers)) %>%
+        mutate(publishers = gsub(", LLC", " LLC", publishers)) %>%
+        mutate(publishers = gsub(", PLC", " PLC", publishers)) %>%
+        mutate(publishers = gsub(", LLP", " LLP", publishers)) %>%
+        mutate(publishers = gsub(", S\\.C\\.P\\.", " S.C.P.", publishers)) %>%
+        mutate(publishers = gsub(", S\\.A\\.", " S.A.", publishers)) %>%
+        mutate(publishers = gsub(", S\\.L\\.", " S.L.", publishers)) %>%
+        mutate(publishers = gsub(", S\\. A\\.", " S.A.", publishers)) %>%
+        mutate(publishers = gsub(", Lda", " Lda", publishers)) %>%
+        mutate(publishers = gsub(", Limited", " Limited", publishers)) %>%
+        cSplit(., splitCols = c("publishers", "publishersid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long")
+
+# problems
+foo<-publishers_check %>%
+        filter((!is.na(publishers) & is.na(publishersid)) | 
+                       (is.na(publishers) & !(is.na(publishersid))))
+
+foo
+
+# duplicated ids
+dupes<-publishers_check %>%
+                filter(objectid %in% foo$objectid) %>%
+        group_by(publishersid) %>% 
+        summarize(ids = n_distinct(publishers)) %>%
+        filter(ids > 1) %>%
+        mutate(ids = as.character(ids))
+
+
+
+assertthat::see_if(sum(is.na(publishers_check)) ==0)
+assertthat::assert_that(sum(is.na(publishers_check)) ==0)
+
         rename(publisher = publishers,
                publisher_id = publishersid) %>%
         select(publisher_id, publisher) %>%
@@ -127,3 +208,7 @@ expansions_table<-games_data %>%
         mutate(expansion_id = as.integer(expansion_id)) %>%
         arrange(expansion_id) %>%
         as_tibble()
+
+
+### write to GCP
+di
