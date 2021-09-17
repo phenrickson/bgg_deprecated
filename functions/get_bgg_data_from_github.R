@@ -7,7 +7,6 @@ function(input_date) {
                          show_col_types = F) %>%
                 mutate(date = input_date,
                        ID = as.integer(ID),
-                       recplayers = gsub("\"", "", recplayers),
                        github_url = url) %>%
                 rename(game_id = ID,
                        game_name = Name,

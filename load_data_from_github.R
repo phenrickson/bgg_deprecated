@@ -6,25 +6,25 @@ library(magrittr)
 library(odbc)
 
 # establish connection to AE Lab
-con <- dbConnect(odbc(),
-                 Driver = "ODBC Driver 17 for SQL Server",
-                 Server = "aelabdb.aebslab.local",
-                 Database = keyring::key_list("AE_LAB") %$% service,
-                 UID = keyring::key_list("AE_LAB") %$% username,
-                 PWD = keyring::key_get("AE_LAB", keyring::key_list("AE_LAB") %$% username),
-                 Port = 1433)
+# con <- dbConnect(odbc(),
+#                  Driver = "ODBC Driver 17 for SQL Server",
+#                  Server = "aelabdb.aebslab.local",
+#                  Database = keyring::key_list("AE_LAB") %$% service,
+#                  UID = keyring::key_list("AE_LAB") %$% username,
+#                  PWD = keyring::key_get("AE_LAB", keyring::key_list("AE_LAB") %$% username),
+#                  Port = 1433)
 
 # source function for reading data 
 source("functions/get_bgg_data_from_github.R")
 
 # get todays data from bgg
 bgg_today<-get_bgg_data_from_github(Sys.Date())
-
-# append to sql table
-dbWriteTable(conn = con, 
-             name = DBI::SQL('DEV_AE_LAB.BGG.GAME_RANKING_HISTORICALS'),
-             value = bgg_today,
-             append=T)
+# 
+# # append to sql table
+# dbWriteTable(conn = con, 
+#              name = DBI::SQL('DEV_AE_LAB.BGG.GAME_RANKING_HISTORICALS'),
+#              value = bgg_today,
+#              append=T)
 
 # load all data up until yesterday
 # date_grid<-seq(as.Date("2016-10-12"),
@@ -47,7 +47,7 @@ foreach(i = 1:length(date_grid),
                              name = DBI::SQL('DEV_AE_LAB.BGG.GAME_RANKING_HISTORICALS'),
                              value = bgg_temp,
                              append=T)
-                
+        
                 rm(bgg_temp)
                 
                 Sys.sleep(3)
@@ -55,7 +55,6 @@ foreach(i = 1:length(date_grid),
                 print(paste(date_grid[i], "loaded"))
                 
                 # insert a pause
-                
                 
                 }
 

@@ -9,6 +9,9 @@ library(splitstackshape)
 # load bgg analytics
 library(bggAnalytics)
 
+# load big query
+library(bigrquery)
+
 # get game ids from most recent day
 # source function for reading data 
 source("functions/get_bgg_data_from_github.R")
@@ -20,30 +23,167 @@ bgg_today<-get_bgg_data_from_github(Sys.Date())
 game_ids<-bgg_today$game_id
 
 # push through API
+# takes about 5 min?
 games_obj<-bggGames$new(ids = game_ids,
                     chunk_size=500)
 
-# expand
+# expand the resulting pull from the API
+# takes about 10 min?
 games_obj$expand()
 
 # get xml
 games_xml<-games_obj$xml
 
-### games data - one record per game
+### Getting data ready for model
+# the flattened out data, which contains concatenated strings
 games_data<-games_obj$data %>%
-        as_tibble()
+        as_tibble() %>%
+        rename(game_id = objectid) %>%
+        mutate(recplayers = gsub("\"", "", recplayers)) %>%
+        mutate(timestamp = games_obj$timestamp)
 
-## look up tables
+# next, we want the constituent pieces flattened out to create our data model
+games_list<-games_obj$fetch(c("mechanics",
+                              "mechanicsid",
+                              "category", 
+                              "categoryid",
+                              "publishers", 
+                              "publishersid", 
+                              "designers",
+                              "designersid",
+                              "artists",
+                              "artistsid",
+                              "expansions",
+                              "expansionsid"))
 
-publishers<-games_obj$fetch(c("publishers", "publishersid"))
+# convert to data frame of lists
+df_list<-as_tibble(do.call(cbind, games_list)) %>%
+        mutate(game_id = games_data$game_id) %>%
+        rename(category = category,
+               category_id = categoryid,
+               publisher = publishers,
+               publisher_id = publishersid,
+               designer = designers,
+               designer_id = designersid,
+               artist = artists,
+               artist_id = artistsid,
+               expansion = expansions,
+               expansion_id = expansionsid) %>%
+        select(game_id, everything())
 
-# publishers
-publishers_raw<- lapply(publishers$publishers, function(x) x %>% as.data.frame())
-names(publishers_raw)<-games_data$objectid
+## games
+game_table<-games_data %>%
+        select(game_id, name) %>%
+        unique() %>%
+        arrange(game_id)
 
-# publishersids
-# 
-### load table
+## categories
+category_table<-df_list %>% 
+        select(game_id, category, category_id) %>%
+        unnest(cols = c("category", "category_id")) %>%
+        select(category_id, category) %>%
+        unique() %>%
+        arrange(category_id)
+
+## publishers
+publisher_table<-df_list %>% 
+        select(game_id, publisher, publisher_id) %>%
+        unnest(cols = c("publisher", "publisher_id")) %>%
+        select(publisher_id, publisher) %>%
+        unique() %>%
+        arrange(publisher_id)
+
+## designers
+designer_table<-df_list %>% 
+        select(game_id, designer, designer_id) %>%
+        unnest(cols = c("designer", "designer_id")) %>%
+        select(designer_id, designer) %>%
+        unique() %>%
+        arrange(designer_id)
+
+## artists
+artist_table<-df_list %>% 
+        select(game_id, artist, artist_id) %>%
+        unnest(cols = c("artist", "artist_id")) %>%
+        select(artist_id, artist) %>%
+        unique() %>%
+        arrange(artist_id)
+
+## expansions
+expansion_table<-df_list %>% 
+        select(game_id, expansion, expansion_id) %>%
+        unnest(cols = c("expansion", "expansion_id")) %>%
+        select(expansion_id, expansion) %>%
+        unique() %>%
+        arrange(expansion_id)
+
+### flatten ids for a table that has everything
+# # could then craete views off of this to define common tables
+# games_flattened<-df_list %>%
+#         select(game_id, 
+#                category_id,
+#                publisher_id,
+#                designer_id,
+#                artist_id,
+#                expansion_id
+#                ) %>%
+#         unnest(cols = c("category_id")) %>%
+#         unnest(cols = c("publisher_id")) %>% 
+#         unnest(cols = c("designer_id")) %>% 
+#         unnest(cols = c("artist_id")) %>%
+#         unnest(cols = c("expansion_id"))
+
+## or, flatten specific tables
+
+# games and categories
+games_categories <- df_list %>%
+        select(game_id, category_id) %>%
+        unnest(cols = c("category_id")) %>%
+        arrange(game_id, category_id)
+
+# games and designers
+games_designers <- df_list %>%
+        select(game_id, designer_id) %>%
+        unnest(cols = c("designer_id")) %>%
+        arrange(game_id, designer_id)
+
+# games and publishers
+games_publishers <- df_list %>%
+        select(game_id, publisher_id) %>%
+        unnest(cols = c("publisher_id")) %>%
+        arrange(game_id, publisher_id)
+
+# games and artists
+games_artists <- df_list %>%
+        select(game_id, artist_id) %>%
+        unnest(cols = c("artist_id")) %>%
+        arrange(game_id, artist_id)
+
+# games and expansions
+games_expansions <- df_list %>%
+        select(game_id, expansion_id) %>%
+        unnest(cols = c("expansion_id")) %>%
+        arrange(game_id, expansion_id)
+
+
+# load to GCP
+library(bigrquery)
+
+# authenticate
+bq_auth(path = keyring::key_get(service = "GCP"),
+        use_oob=T)
+
+# project credentials
+PROJECT_ID <- "gcp-analytics-326219"
+BUCKET_NAME <- "test-bucket"
+
+# bq table object
+bq_games_data<-as_bq_table(list(project_id = PROJECT_ID,
+                                dataset_id = "bgg",
+                                table_id = "raw_games_daily"))
+
+# upload
+bq_table_upload(bq_games_data, games_data, quiet=NA)
 
 
 ### create look up tables
