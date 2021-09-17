@@ -29,11 +29,20 @@ games_obj$expand()
 # get xml
 games_xml<-games_obj$xml
 
-# get data
+### games data - one record per game
 games_data<-games_obj$data %>%
         as_tibble()
 
+## look up tables
 
+publishers<-games_obj$fetch(c("publishers", "publishersid"))
+
+# publishers
+publishers_raw<- lapply(publishers$publishers, function(x) x %>% as.data.frame())
+names(publishers_raw)<-games_data$objectid
+
+# publishersids
+# 
 ### load table
 
 
@@ -119,19 +128,34 @@ designers_table <- designers_check %>%
 # publishers
 publishers_check<-games_data %>%
         select(objectid, starts_with("publisher")) %>%
-        mutate(publishers = gsub("Tantrix Games Ibérica, S. L., Tantrix Games Ltd.", "Tantrix Games Iberica SL Tantrix Games Ltd", publishers)) %>%
+        mutate(publishers = gsub("Korea Boardgames Co., Ltd.", "Korea Boardgames Co Ltd", publishers, fixed=T)) %>%
+        mutate(publishers = gsub("Inca Perudo", "Perudo Inca", publishers)) %>%
+   #     mutate(publishers = gsub("Alortujou, Alsip and Co", "Alortujou Alsip and Co", publishers)) %>%
+        mutate(publishers = gsub("Kölner Stadt Anzeiger Magazin", "Magazin Kölner Stadt Anzeiger", publishers)) %>%
+        mutate(publishers = gsub("Soldiers, Sailors and Airmen's Families Association", "Soldiers Sailors and Airmen's Families Association", publishers)) %>%
+        mutate(publishers = gsub("S\\.A\\. Derwik", "Derwik SA", publishers)) %>%
+        mutate(publishers = gsub(", Köln", " Köln", publishers)) %>%
+        mutate(publishers = gsub("Co Ma", " Games Co Ma", publishers)) %>%
+        mutate(publishers = gsub("SAEC Games", "Games SAEC", publishers)) %>%
+        mutate(publishers = gsub("SALO", "salo", publishers)) %>%
+        mutate(publishers = gsub("Säuberlin & Pfeiffer Sa, Vevey", " Säuberlin & Pfeiffer Sa Vevey", publishers)) %>%
         mutate(publishers = gsub("Ministerium für Umwelt, Raumordnung und Landwirtschaft", "Ministerium für Umwelt, Raumordnung und Landwirtschaft", publishers)) %>%
-        mutate(publishers = gsub("Unipart Verlag, Usborne", "Unipart Verlag Usborne", publishers)) %>%
-        mutate(publishers = gsub("Unipart Verlag, Usborne", "Unipart Verlag Usborne", publishers)) %>%
         mutate(publishers = gsub("Sage, Sons & Co", "Sage Sons & Co", publishers)) %>%
         mutate(publishers = gsub("Aires, Fanha e Raposo", "Aires Fanha e Raposa", publishers)) %>%
         mutate(publishers = gsub("Mann, Ivanov, and Ferber", "Mann Ivanov and Ferber", publishers)) %>%
         mutate(publishers = gsub("Cayro, the games", "Cayro the games", publishers)) %>%
-        mutate(publishers = gsub("\\.", "", gsub("\\)", "", gsub("\\(", "", publishers)))) %>%
-        mutate(publishers = gsub(", Co", " Co", publishers)) %>%
-        mutate(publishers = gsub(", Inc",  " Inc", publishers))
+        mutate(publishers = gsub("Ministerium für Umwelt, Raumordnung und Landwirtschaft", "Ministerium für Umwelt Raumordnung und Landwirtschaft", publishers)) %>%
+        mutate(publishers = gsub("Nienstaedt & Co\\., Ltd\\., Hong Kong", "Nienstaedt & Co Ltd Hong Kong", publishers)) %>%
+        mutate(publishers = gsub("Blue & Red Box, UK Ltd\\.", "Blue & Red Box UK Ltd", publishers)) %>%
+        mutate(publishers = gsub("Si/si, les femmes existent", "si si les femmes existent", publishers, fixed=T)) %>%
+     #   mutate(publishers = gsub("Tantrix Games Ibérica, S\\. L\\.", "Tantrix Games Ibérica SL", publishers)) %>%
+        mutate(publishers = gsub("\\)", "", gsub("\\(", "", publishers)))  %>%
+        mutate(publishers = gsub(".", "", publishers, fixed=T)) %>%
+        mutate(publishers = gsub(", Co ", " Co", publishers)) %>%
+        mutate(publishers = gsub(", Inc",  " Inc", publishers)) %>%
+        mutate(publishers = gsub(", Wien", " Wien", publishers)) %>%
         mutate(publishers = gsub(", Inc ",  " Inc", publishers)) %>%
-        mutate(publishers = gsub(", INC ",  " Inc", publishers)) %>%
+        mutate(publishers = gsub(", INC",  " Inc", publishers)) %>%
         mutate(publishers = gsub(", Ltd", " Ltd", publishers)) %>%
         mutate(publishers = gsub(", LTD", " Ltd", publishers)) %>%
         mutate(publishers = gsub(", Lda", " Lda", publishers)) %>%
@@ -139,34 +163,40 @@ publishers_check<-games_data %>%
         mutate(publishers = gsub(", LLC", " LLC", publishers)) %>%
         mutate(publishers = gsub(", PLC", " PLC", publishers)) %>%
         mutate(publishers = gsub(", LLP", " LLP", publishers)) %>%
-        mutate(publishers = gsub(", S\\.C\\.P\\.", " S.C.P.", publishers)) %>%
-        mutate(publishers = gsub(", S\\.A\\.", " S.A.", publishers)) %>%
-        mutate(publishers = gsub(", S\\.L\\.", " S.L.", publishers)) %>%
-        mutate(publishers = gsub(", S\\. A\\.", " S.A.", publishers)) %>%
+        mutate(publishers = gsub(", SCP", " SCP", publishers)) %>%
+        mutate(publishers = gsub(", SA", " SA", publishers)) %>%
+        mutate(publishers = gsub(", SL", " SL", publishers)) %>%
+        mutate(publishers = gsub(", S L", " SL", publishers)) %>%
+        mutate(publishers = gsub(", S A", " SA", publishers)) %>%
         mutate(publishers = gsub(", Lda", " Lda", publishers)) %>%
         mutate(publishers = gsub(", Limited", " Limited", publishers)) %>%
         cSplit(., splitCols = c("publishers", "publishersid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long")
 
-# problems
-foo<-publishers_check %>%
-        filter((!is.na(publishers) & is.na(publishersid)) | 
-                       (is.na(publishers) & !(is.na(publishersid))))
+# # problems
+# foo<-publishers_check %>%
+#         filter((!is.na(publishers) & is.na(publishersid)) | 
+#                        (is.na(publishers) & !(is.na(publishersid))))
+# 
+# foo
 
-foo
-
-# duplicated ids
-dupes<-publishers_check %>%
-                filter(objectid %in% foo$objectid) %>%
-        group_by(publishersid) %>% 
-        summarize(ids = n_distinct(publishers)) %>%
-        filter(ids > 1) %>%
-        mutate(ids = as.character(ids))
-
-
+# # # duplicated ids
+# dupes<-publishers_check %>%
+#                 filter(objectid %in% foo$objectid) %>%
+#         group_by(publishersid) %>%
+#         summarize(ids = n_distinct(publishers)) %>%
+#         filter(ids > 1) %>%
+#         mutate(ids = as.character(ids))
+# 
+# publishers_check %>%
+#         filter(objectid %in% foo$objectid) %>%
+#         left_join(., dupes %>%
+#                           rename(problemsid = publishersid), by = c("publishersid" = "problemsid")) %>%
+#         View()
 
 assertthat::see_if(sum(is.na(publishers_check)) ==0)
 assertthat::assert_that(sum(is.na(publishers_check)) ==0)
 
+publishers_table <- publishers_check %>%
         rename(publisher = publishers,
                publisher_id = publishersid) %>%
         select(publisher_id, publisher) %>%
@@ -177,13 +207,36 @@ assertthat::assert_that(sum(is.na(publishers_check)) ==0)
 
 
 # artists
-artists_table<-games_data %>%
-select(objectid, starts_with("artist")) %>%
-        mutate(artists = gsub("\\)", "", gsub("\\(", "", artists))) %>%
-        mutate(artists = gsub(", Inc.", "Inc.", artists)) %>%
-        mutate(artists = gsub(", Ltd.", "Ltd.", artists)) %>%
-        mutate(artists = gsub(", LLC", "LLC", artists)) %>%
-        cSplit(., splitCols = c("artists", "artistsid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long") %>%
+artists_check<-games_data %>%
+        select(objectid, starts_with("artist")) %>%
+        mutate(artists = gsub("Elizabeth Thompson, Lady Butler", "Elizabeth Thompson Lady Butler", artists)) %>%
+        mutate(artists = gsub("Jr Casas", "Casas Jr", artists)) %>%
+        mutate(artists = gsub("SHI,RU-YI", "SHI RU-YI", artists)) %>%
+        mutate(artists = gsub(", the Elder", " the Elder", artists)) %>%
+        mutate(artists = gsub(", the Younger", " the Younger", artists)) %>%
+        mutate(artists = gsub(".", "", artists, fixed=T)) %>%
+        mutate(artists = gsub("\\)", "", artists)) %>%
+        mutate(artists = gsub("\\)", "", artists)) %>%
+        mutate(artists = gsub(", Jr", "Jr", artists)) %>%
+        mutate(artists = gsub(", II", "II", artists)) %>%
+        mutate(artists = gsub(", MC", "MC", artists)) %>%
+        mutate(artists = gsub(", III", "III", artists)) %>%
+        mutate(artists = gsub(", IV", "IV", artists)) %>%
+        mutate(artists = gsub(", PhD", "PhD", artists)) %>%
+        mutate(artists = gsub(", Inc", " Inc", artists)) %>%
+        mutate(artists = gsub(", LLC", " LLC", artists)) %>%
+        cSplit(., splitCols = c("artists", "artistsid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long")
+
+# foo<-artists_check %>%
+#         filter((!is.na(artists) & is.na(artistsid)) |
+#                        (is.na(artists) & !(is.na(artistsid))))
+# 
+# foo
+
+assertthat::see_if(sum(is.na(artists_check)) ==0)
+assertthat::assert_that(sum(is.na(artists_check)) ==0)
+
+artists_table<-artists_check %>%
         rename(artist = artists,
                artist_id = artistsid) %>%
         select(artist_id, artist) %>%
@@ -194,13 +247,35 @@ select(objectid, starts_with("artist")) %>%
 
 
 # expansions
-expansions_table<-games_data %>%
+expansions_check<-games_data %>%
         select(objectid, starts_with("expansion")) %>%
         mutate(expansions = gsub("\\)", "", gsub("\\(", "", expansions))) %>%
         mutate(expansions = gsub(", Inc.", "Inc.", expansions)) %>%
         mutate(expansions = gsub(", Ltd.", "Ltd.", expansions)) %>%
         mutate(expansions = gsub(", LLC", "LLC", expansions)) %>%
-        cSplit(., splitCols = c("expansions", "expansionsid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long") %>%
+        cSplit(., splitCols = c("expansions", "expansionsid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long")
+
+
+foo<-expansions_check %>%
+        filter((!is.na(expansions) & is.na(expansionsid)) |
+                       (is.na(expansions) & !(is.na(expansionsid))))
+
+foo
+
+
+assertthat::see_if(sum(is.na(expansions_check)) ==0)
+assertthat::assert_that(sum(is.na(expansions_check)) ==0)
+
+
+expansions_check<-games_data %>%
+        select(objectid, starts_with("expansion")) %>%
+        mutate(expansions = gsub("\\)", "", gsub("\\(", "", expansions))) %>%
+        mutate(expansions = gsub(", Inc.", "Inc.", expansions)) %>%
+        mutate(expansions = gsub(", Ltd.", "Ltd.", expansions)) %>%
+        mutate(expansions = gsub(", LLC", "LLC", expansions)) %>%
+        cSplit(., splitCols = c("expansions", "expansionsid"), sep = ",",  stripWhite = T, drop = T, type.convert = F, direction = "long")
+
+
         rename(expansion = expansions,
                expansion_id = expansionsid) %>%
         select(expansion_id, expansion) %>%
