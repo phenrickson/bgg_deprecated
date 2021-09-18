@@ -19,12 +19,34 @@ source("functions/get_bgg_data_from_github.R")
 
 # get todays data from bgg
 bgg_today<-get_bgg_data_from_github(Sys.Date())
-# 
-# # append to sql table
-# dbWriteTable(conn = con, 
-#              name = DBI::SQL('DEV_AE_LAB.BGG.GAME_RANKING_HISTORICALS'),
-#              value = bgg_today,
-#              append=T)
+
+### push to GCP 
+# library bigrquery
+library(bigrquery)
+library(bigQueryR)
+library(DBI)
+
+# authenticate
+bq_auth(path = keyring::key_get(service = "GCP"),
+        use_oob=T)
+
+# get project credentials
+PROJECT_ID <- "gcp-analytics-326219"
+BUCKET_NAME <- "test-bucket"
+
+# establish connection
+con<-dbConnect(
+        bigrquery::bigquery(),
+        project = PROJECT_ID,
+        dataset = "bgg"
+)
+
+# write
+dbWriteTable(con,
+             name = "games_raw_daily",
+             append = T,
+             value = games_data)
+
 
 # load all data up until yesterday
 # date_grid<-seq(as.Date("2016-10-12"),

@@ -277,9 +277,16 @@ BUCKET_NAME <- "test-bucket"
 
 ### make bq table objects
 ## daily table
-bq_games_daily<-as_bq_table(list(project_id = PROJECT_ID,
-                                dataset_id = "bgg",
-                                table_id = "games_daily"))
+# bq_games_daily<-as_bq_table(list(project_id = PROJECT_ID,
+#                                 dataset_id = "bgg",
+#                                 table_id = "games_daily"))
+
+# write
+dbWriteTable(con,
+             name = "games_daily",
+             append = T,
+             value = games_daily)
+
 
 ## id tables
 bq_game_ids<-as_bq_table(list(project_id = PROJECT_ID,
