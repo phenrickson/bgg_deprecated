@@ -48,13 +48,10 @@ bgg_load_today <- bgg_today %>%
 
 ### push to GCP 
 
-# authenticate
+# # authenticate
 # bq_auth(path = keyring::key_get(service = "GCP"),
-#         use_oob=T)
+#         use_oob=F)
 #         
-#         
-
-
 # upload
 # bq_table_upload(bq_bgg_today,
 #                 values = bgg_load_today,
