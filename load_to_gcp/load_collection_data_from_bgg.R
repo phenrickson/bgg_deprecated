@@ -24,7 +24,8 @@ users<-c("mrbananagrabber",
 # loop and combine
 collections<-foreach(i = 1:length(users), .combine = rbind.data.frame) %do% {
                 
-                get_collection(users[i])
+                get_collection(users[i]) %>%
+                as_tibble()
 
 }
 
@@ -52,5 +53,5 @@ bigquerycon<-dbConnect(
 ## write
 dbWriteTable(bigquerycon,
              name = "historical_collections",
-             append = T,
+             overwrite = TRUE,
              value = collections)
