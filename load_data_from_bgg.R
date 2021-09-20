@@ -281,7 +281,7 @@ BUCKET_NAME <- "test-bucket"
 #                                 dataset_id = "bgg",
 #                                 table_id = "games_daily"))
 
-# write
+# append
 dbWriteTable(con,
              name = "games_daily",
              append = T,
@@ -342,9 +342,9 @@ bq_game_expansions<-as_bq_table(list(project_id = PROJECT_ID,
                                      dataset_id = "bgg",
                                      table_id = "game_expansions"))
 
-bq_game_recplayerss<-as_bq_table(list(project_id = PROJECT_ID,
+bq_game_recplayers<-as_bq_table(list(project_id = PROJECT_ID,
                                      dataset_id = "bgg",
-                                     table_id = "game_recplayerss"))
+                                     table_id = "game_recplayers"))
 
 ### Upload tables
 bq_table_upload(bq_games_data, 
