@@ -540,7 +540,7 @@ adjusted_ratings %>%
 
 We want to focus in on the games that see a positive and negative shift in particular. Let's look at the games that are penalized/improved the most.
 
-```{r look at top and bottom movment}
+```{r look at top and bottom movment, warning=F, message=F}
 
 diff_percentiles<-adjusted_ratings %>% 
         mutate(rating_diff = adj_baverage - baverage) %$% 
@@ -578,7 +578,7 @@ adjusted_ratings %>%
                BGGRank = rank,
                Difference = rating_diff) %>%
         select(date, name, BGGRating, AdjustedRating,  Difference) %>%
-        head(100) %>%
+        head(50) %>%
         flextable() %>%
         flextable::autofit() %>%
         bg(j = c("Difference"),
@@ -598,7 +598,7 @@ adjusted_ratings %>%
                BGGRank = rank,
                Difference = rating_diff) %>%
         select(date, name, BGGRating, AdjustedRating,  Difference) %>%
-        head(100) %>%
+        head(50) %>%
         flextable() %>%
         flextable::autofit() %>%
         bg(j = c("Difference"),
@@ -632,11 +632,7 @@ rank_func<- function(x) {
   
 }
 
-```
 
-Then let's look at the most penalized games.
-
-```{r movement in rankings negative}
 #flextable for most penalized games
 adjusted_ratings %>%
         mutate(rank_diff = rank-adj_rank) %>%
@@ -650,7 +646,7 @@ adjusted_ratings %>%
                Difference = rank_diff) %>%
         select(date, name, BGGRank, AdjustedRank,  Difference) %>%
         arrange(Difference) %>%
-        head(100) %>%
+        head(50) %>%
         flextable() %>%
         flextable::autofit() %>%
         bg(j = c("Difference"),
@@ -669,7 +665,7 @@ adjusted_ratings %>%
                Difference = rank_diff) %>%
         select(date, name, BGGRank, AdjustedRank,  Difference) %>%
         arrange(desc(Difference)) %>%
-        head(100) %>%
+        head(50) %>%
         flextable() %>%
         flextable::autofit() %>%
         bg(j = c("Difference"),
@@ -741,7 +737,6 @@ adjusted_ratings %>%
            bg = rank_func)
 
 # complexity adjusted ratings
-
 complexity_adjusted_ratings<-adjusted_ratings %>%
   select(date, game_id, name, adj_baverage, adj_rank)
 
