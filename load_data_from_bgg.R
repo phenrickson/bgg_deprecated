@@ -221,6 +221,12 @@ expansion_ids<-df_list %>%
 #         unnest(cols = c("expansion_id"))
 
 ## or, flatten specific tables
+# game and yearpublished
+game_yearpublished<- games_daily %>%
+        select(game_id, yearpublished) %>%
+        arrange(game_id,)
+
+
 # game and artists
 game_artists <- df_list %>%
         select(game_id, artist_id) %>%
@@ -286,6 +292,7 @@ library(DBI)
 
 # authenticate
 bq_auth(path = keyring::key_get(service = "GCP"),
+        email = 'phil.henrickson@aebs.com',
          use_oob=T)
 
 # get project credentials
@@ -380,6 +387,11 @@ dbWriteTable(bigquerycon,
 
 ## linking tables
 ## overwrite
+dbWriteTable(bigquerycon,
+             name = "game_yearpublished",
+        #     overwrite = T,
+             value = game_yearpublished)
+
 # game artists
 dbWriteTable(bigquerycon,
              name = "game_artists",
@@ -407,25 +419,25 @@ dbWriteTable(bigquerycon,
 # game_expansions
 dbWriteTable(bigquerycon,
              name = "game_expansions",
-             overwrite = T,
+          #   overwrite = T,
              value = game_expansions)
 
 # game_mechanics
 dbWriteTable(bigquerycon,
              name = "game_mechanics",
-             overwrite = T,
+         #    overwrite = T,
              value = game_mechanics)
 
 # game_publishers
 dbWriteTable(bigquerycon,
              name = "game_publishers",
-             overwrite = T,
+        #     overwrite=T,
              value = game_publishers)
 
 # game_recplayers
 dbWriteTable(bigquerycon,
              name = "game_recplayers",
-             overwrite = T,
+        #     overwrite = T,
              value = game_recplayers)
 
 # ## id tables
@@ -466,6 +478,10 @@ dbWriteTable(bigquerycon,
 #                                    dataset_id = "bgg",
 #                                    table_id = "game_categories"))
 # 
+# bq_game_mechanics<-as_bq_table(list(project_id = PROJECT_ID,
+#                                      dataset_id = "bgg",
+#                                      table_id = "game_mechanics"))
+# 
 # bq_game_artists<-as_bq_table(list(project_id = PROJECT_ID,
 #                                       dataset_id = "bgg",
 #                                       table_id = "game_artists"))
@@ -473,11 +489,11 @@ dbWriteTable(bigquerycon,
 # bq_game_designers<-as_bq_table(list(project_id = PROJECT_ID,
 #                                   dataset_id = "bgg",
 #                                   table_id = "game_designers"))
-# 
+# # 
 # bq_game_publishers<-as_bq_table(list(project_id = PROJECT_ID,
 #                                     dataset_id = "bgg",
 #                                     table_id = "game_publishers"))
-# 
+# # 
 # bq_game_expansions<-as_bq_table(list(project_id = PROJECT_ID,
 #                                      dataset_id = "bgg",
 #                                      table_id = "game_expansions"))
