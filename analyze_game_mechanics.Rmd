@@ -335,14 +335,16 @@ game_publishers %>%
         arrange(desc(games_published)) %>%
         slice_max(., 
                   order_by = games_published,
-                  n = 50) %>%
+                  n = 75) %>%
         ggplot(., aes(y = reorder(publisher, games_published),
                       x = games_published))+
         geom_col()+
         theme_phil()+
         xlab("Games Published")+
         ylab("Publisher")+
-        theme(axis.text.y = element_text(size=5))
+        theme(axis.text.y = element_text(size=4.5))+
+                theme(panel.grid.major = element_blank())
+
 
 ```
 
@@ -363,7 +365,159 @@ publishers_pivot<-game_publishers %>%
 
 ```
 
-Look at specific publishers.
+I want to see this for multiple publishers. Let's create a shiny app to do so.
+
+```{r}
+
+### Pivot Tables for Upset Plot
+publishers_pivot<-game_publishers %>%
+    # filter(game_id == 124361) %>%
+ #   mutate(publisher = tolower(paste("pub", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", publisher))), sep="_"))) %>%
+    mutate(has_publisher = 1) %>%
+    select(-publisher_id) %>%
+    pivot_wider(names_from = c("publisher"),
+                values_from = c("has_publisher"),
+                id_cols = c("game_id"),
+                names_sep = "_",
+                values_fn = min,
+                values_fill = 0)
+
+mechanics_pivot<-game_mechanics %>%
+    #       filter(game_id == 124361) %>%
+    #   mutate(mechanic = tolower(paste("mech", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", mechanic))), sep="_"))) %>%
+    mutate(has_mechanic = 1) %>%
+    select(-mechanic_id) %>%
+    pivot_wider(names_from = c("mechanic"),
+                values_from = c("has_mechanic"),
+                id_cols = c("game_id"),
+                names_sep = "_",
+                values_fill = 0) %>%
+    as.data.frame()
+
+categories_pivot<-game_categories %>%
+    # filter(game_id == 124361) %>%
+    #   mutate(category = tolower(paste("pub", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", category))), sep="_"))) %>%
+    mutate(has_category = 1) %>%
+    select(-category_id) %>%
+    pivot_wider(names_from = c("category"),
+                values_from = c("has_category"),
+                id_cols = c("game_id"),
+                names_sep = "_",
+                values_fn = min,
+                values_fill = 0)
+### names
+# category name inputs
+category_names<-game_categories %>%
+    group_by(category, category_id) %>%
+    summarize(games = n_distinct(game_id),
+              .groups = 'drop') %>%
+    arrange(desc(games)) %>%
+    filter(!grepl("(", fixed=T, category)) %>%
+    pull(category)
+
+# mechanic name inputs
+mechanic_names<-game_mechanics %>%
+    pull(mechanic) %>%
+    unique()
+
+# publisher name inputs
+publisher_names<-game_publishers %>%
+    group_by(publisher, publisher_id) %>%
+    summarize(games = n_distinct(game_id),
+              .groups = 'drop') %>%
+    arrange(desc(games)) %>%
+    filter(!grepl("(", fixed=T, publisher)) %>%
+    pull(publisher)
+
+
+# input data
+input_data <- mechanics_pivot %>%
+    left_join(., publishers_pivot) %>%
+    left_join(., active_games %>%
+                  select(game_id,  yearpublished, rank, usersrated))
+
+# Define UI for application that draws a histogram
+ui <- fluidPage(
+
+    # Application title
+    titlePanel("Board Game Mechanic Combinations"),
+    
+    # Input: Slider for the number of bins ----
+    sliderInput(inputId = "sets",
+                label = "Number of Mechanics",
+                min = 5,
+                step = 5,
+                max = 25,
+                value = 10),
+    
+    # # select category
+    # selectInput(inputId = "category",
+    #             label = "Category of Games",
+    #             #     selected = category_names[3],
+    #             choices = category_names,
+    #             multiple = F,
+    #             tableOutput("data")),
+    # 
+    # select publisher
+    selectInput(inputId = "publisher",
+                   label = "Publisher:",
+           #     selected = publisher_names[3],
+                 choices = publisher_names,
+                multiple = F,
+                tableOutput("data")),
+    
+        # Show a plot of the generated distribution
+        # 
+        # 
+        mainPanel(
+           plotOutput("upsetPlot",
+                      height = '800px',
+                      width = '1600px')
+        ),
+    )
+
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+    
+    output$upsetPlot <- renderPlot({
+        
+        # get filtered data
+        filtered_data<-input_data %>%
+            filter(!!rlang::sym(input$publisher) == 1)
+        
+        # generate bins based on input$bins from ui.R
+        upset(filtered_data %>% 
+                  select(one_of(mechanic_names)),
+              #           sets=mechanic_names,
+              nsets = input$sets,
+              show.numbers = F,
+                 text.scale = 3,
+                 point.size = 4,
+                  line.size=1.5,
+              #    nintersects = 50,
+              mb.ratio = c(.4, .6),
+              mainbar.y.label = "# of Games with \n Combination of Mechanics",
+              sets.x.label = "# of Games with Mechanic",
+              order.by = "freq")
+    })
+    
+    # updateSelectizeInput(session,
+    #                      'publisher', 
+    #                      choices = publisher_names, 
+    #                      server = TRUE)
+    # 
+
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+
+
+
+
+
+```
+
 
 ```{r look at mechanic combos for top publishers, fig.height=10}
 
@@ -511,6 +665,120 @@ upset_plot<-upset(temp2,
 
 upset_plot
 grid.text("Board Game Mechanic Combinations - Pegasus Speile", x=0.65, y=.99, gp=gpar(fontsize=24))
+
+```
+
+
+```{r pivot categories}
+categories_pivot<-game_categories %>%
+ #       filter(game_id == 124361) %>%
+        mutate(category = tolower(paste("cat", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", category))), sep="_"))) %>%
+        mutate(has_category = 1) %>%
+        select(-category_id) %>%
+        pivot_wider(names_from = c("category"),
+                    values_from = c("has_category"),
+                    id_cols = c("game_id"),
+                    names_sep = "_",
+                    values_fill = 0)
+
+
+# most categories
+game_categories %>%
+        group_by(category, category_id) %>%
+        count() %>%
+        arrange(desc(n)) %>%
+        ggplot(., aes(y=reorder(category,n),
+                      x=n))+
+        geom_col()+
+        theme_phil()+
+        theme(axis.text.y = element_text(size=4.5))+
+        xlab("Number of Games")+
+        ylab("Category")+
+        theme(panel.grid.major = element_blank())
+
+
+```
+Categories upset plot
+
+```{r upset plot for categories, fig.height=10, warning=F}
+
+
+temp<-game_info %>%
+        left_join(., categories_pivot,
+                  by="game_id") %>%
+         mutate_at(vars(starts_with('cat')),
+                   .funs = replace_na, 0) %>%
+        left_join(., active_games) 
+        
+
+cols<-names(temp) %>% grep("cat_", ., value=T)
+
+temp2<-temp %>%
+        select(game_id, one_of(cols)) %>%
+        as.data.frame()
+
+names(temp2)<-gsub("cat_", "", names(temp2))
+
+rm(temp)
+
+upset_plot<-upset(temp2,
+     #sets=gsub("cat", "", cols),
+      nsets = 25,
+     show.numbers = F,
+     text.scale = 3,
+     point.size = 3,
+     nintersects = 75,
+      mb.ratio = c(.3, .7),
+      mainbar.y.label = "# of Games with \n Combination of Categories",
+      sets.x.label = "# of Games with Category",
+      order.by = "freq")
+
+upset_plot
+grid.text("Board Game Category Combinations", x=0.65, y=.99, gp=gpar(fontsize=24))
+
+
+```
+
+
+
+```{r category combinations for top 10000, fig.height=10, warning=F}
+
+
+temp<-game_info %>%
+        left_join(., categories_pivot,
+                  by="game_id") %>%
+         mutate_at(vars(starts_with('cat')),
+                   .funs = replace_na, 0) %>%
+        left_join(., active_games) %>%
+        filter(rank<=1000)
+        
+
+cols<-names(temp) %>% grep("cat_", ., value=T)
+
+temp2<-temp %>%
+        select(game_id, one_of(cols)) %>%
+        as.data.frame()
+
+names(temp2)<-gsub("cat_", "", names(temp2))
+
+rm(temp)
+
+upset_plot<-upset(temp2,
+     #sets=gsub("cat", "", cols),
+      nsets = 25,
+     show.numbers = F,
+     text.scale = 3,
+     point.size = 3,
+     nintersects = 75,
+      mb.ratio = c(.3, .7),
+      mainbar.y.label = "# of Games with \n Combination of Categories",
+      sets.x.label = "# of Games with Category",
+      order.by = "freq")
+
+upset_plot
+grid.text("Board Game Category Combinations - BGG Top 1000", x=0.65, y=.99, gp=gpar(fontsize=24))
+
+
 
 ```
 
