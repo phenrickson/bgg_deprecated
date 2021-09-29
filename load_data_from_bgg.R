@@ -379,12 +379,11 @@ dbWriteTable(bigquerycon,
              overwrite = T,
              value = mechanic_ids)
 
-
 ## linking tables
 ## overwrite
 dbWriteTable(bigquerycon,
              name = "game_yearpublished",
-        #     overwrite = T,
+             overwrite = T,
              value = game_yearpublished)
 
 # game artists
@@ -414,25 +413,25 @@ dbWriteTable(bigquerycon,
 # game_expansions
 dbWriteTable(bigquerycon,
              name = "game_expansions",
-          #   overwrite = T,
+             overwrite = T,
              value = game_expansions)
 
 # game_mechanics
 dbWriteTable(bigquerycon,
              name = "game_mechanics",
-         #    overwrite = T,
+            overwrite = T,
              value = game_mechanics)
 
 # game_publishers
 dbWriteTable(bigquerycon,
              name = "game_publishers",
-        #     overwrite=T,
+             overwrite=T,
              value = game_publishers)
 
 # game_recplayers
 dbWriteTable(bigquerycon,
              name = "game_recplayers",
-        #     overwrite = T,
+             overwrite = T,
              value = game_recplayers)
 
 # ## id tables
