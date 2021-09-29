@@ -9,6 +9,7 @@
 
 library(shiny)
 library(UpSetR)
+library(rsconnect)
 source("load_packages.R")
 source("theme_phil.R")
 
@@ -25,7 +26,6 @@ bigquerycon<-dbConnect(
     project = PROJECT_ID,
     dataset = "bgg"
 )
-
 
 # query table
 active_games<-DBI::dbGetQuery(bigquerycon, 
@@ -67,6 +67,15 @@ game_designers<-DBI::dbGetQuery(bigquerycon,
                                LEFT JOIN bgg.designer_ids b 
                                ON a.designer_id = b.designer_id')
 
+game_categories<-DBI::dbGetQuery(bigquerycon, 
+                                'SELECT 
+                              a.game_id,
+                              b.category_id,
+                              b.category
+                              FROM bgg.game_categories a
+                               LEFT JOIN bgg.category_ids b 
+                               ON a.category_id = b.category_id')
+
 
 ### Pivot Tables for Upset Plot
 publishers_pivot<-game_publishers %>%
@@ -93,6 +102,26 @@ mechanics_pivot<-game_mechanics %>%
                 values_fill = 0) %>%
     as.data.frame()
 
+categories_pivot<-game_categories %>%
+    # filter(game_id == 124361) %>%
+    #   mutate(category = tolower(paste("pub", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", category))), sep="_"))) %>%
+    mutate(has_category = 1) %>%
+    select(-category_id) %>%
+    pivot_wider(names_from = c("category"),
+                values_from = c("has_category"),
+                id_cols = c("game_id"),
+                names_sep = "_",
+                values_fn = min,
+                values_fill = 0)
+### names
+# category name inputs
+category_names<-game_categories %>%
+    group_by(category, category_id) %>%
+    summarize(games = n_distinct(game_id),
+              .groups = 'drop') %>%
+    arrange(desc(games)) %>%
+    filter(!grepl("(", fixed=T, category)) %>%
+    pull(category)
 
 # mechanic name inputs
 mechanic_names<-game_mechanics %>%
@@ -121,13 +150,21 @@ ui <- fluidPage(
     # Application title
     titlePanel("Board Game Mechanic Combinations"),
     
-    # # select publisher
-    # selectizeInput(
-    #     'publisher', label = "Publisher", 
-    #     choices = publisher_names,
-    #     tableOutput("data"),
-    #     options = list(create = TRUE)
-    # ),
+    # Input: Slider for the number of bins ----
+    sliderInput(inputId = "sets",
+                label = "Number of Mechanics",
+                min = 5,
+                step = 5,
+                max = 25,
+                value = 10),
+    
+    # # select category
+    # selectInput(inputId = "category",
+    #             label = "Category of Games",
+    #             #     selected = category_names[3],
+    #             choices = category_names,
+    #             multiple = F,
+    #             tableOutput("data")),
     # 
     # select publisher
     selectInput(inputId = "publisher",
@@ -138,11 +175,13 @@ ui <- fluidPage(
                 tableOutput("data")),
     
         # Show a plot of the generated distribution
+        # 
+        # 
         mainPanel(
            plotOutput("upsetPlot",
                       height = '800px',
                       width = '1600px')
-        )
+        ),
     )
 
 # Define server logic required to draw a histogram
@@ -158,7 +197,7 @@ server <- function(input, output) {
         upset(filtered_data %>% 
                   select(one_of(mechanic_names)),
               #           sets=mechanic_names,
-              nsets = 10,
+              nsets = input$sets,
               show.numbers = F,
                  text.scale = 3,
                  point.size = 4,
@@ -180,3 +219,6 @@ server <- function(input, output) {
 
 # Run the application 
 shinyApp(ui = ui, server = server)
+
+#deployApp()
+
