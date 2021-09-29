@@ -46,6 +46,21 @@ bgg_load_today <- bgg_today %>%
                bayes_average,
                users_rated)
 
+# write
+dbWriteTable(bigquerycon,
+             name = "historical_game_rankings",
+             append = T,
+             value = bgg_load_today)
+
+# wipe
+rm(bgg_today, bgg_load_today)
+
+
+#
+# active_games<-DBI::dbGetQuery(bigquerycon, 
+#                           'SELECT DISTINCT date
+#                            FROM bgg.active_bgg_rankings_view')
+
 ### push to GCP 
 
 # # authenticate
@@ -60,14 +75,6 @@ bgg_load_today <- bgg_today %>%
 
 #bq_table_download(bq_bgg_today)
 
-# write
-dbWriteTable(bigquerycon,
-             name = "historical_game_rankings",
-             append = T,
-             value = bgg_load_today)
-
-# wipe
-rm(bgg_today, bgg_load_today)
 
 
 # # load all data up until yesterday
@@ -128,3 +135,5 @@ rm(bgg_today, bgg_load_today)
 # rm(bgg_day, bgg_load_day)
 # 
 # print(paste(date_grid[i], "loaded"))
+
+rm(list=ls())
