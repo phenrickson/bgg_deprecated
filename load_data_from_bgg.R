@@ -257,11 +257,6 @@ game_publishers <- df_list %>%
         unnest(cols = c("game_id", "publisher_id")) %>%
         arrange(game_id, publisher_id)
 
-# game and artists
-game_artists <- df_list %>%
-        select(game_id, artist_id) %>%
-        unnest(cols = c("game_id", "artist_id")) %>%
-        arrange(game_id, artist_id)
 
 # games and expansions
 game_expansions <- df_list %>%
