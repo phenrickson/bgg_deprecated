@@ -400,7 +400,7 @@ complexity_model %>%
 
 ```
 
-The intercept indicates the average rating of a game with a complexity of 0, which is kind of nonsensical. The coefficient indicates the effect of a unit increase in the complexity of a game on the average rating. Putting these two together tells us that a game with a complexity rating of 1 would have a rating of `r round(predict(complexity_model$model[[1]], newdata = data.frame(avgweight = 1), se=T), 3) %>% as.data.frame() %>% pull(fit)`. A game with a complexity rating of 5, meanwhile, would have a weight of `r round(predict(complexity_model$model[[1]], newdata = data.frame(avgweight = 5), se=T),3) %>% as.data.frame() %>% pull(fit)`.
+The intercept indicates the average rating of a game with a complexity of 0, which is kind of nonsensical. The coefficient indicates the effect of a unit increase in the complexity of a game on the average rating. Putting these two together tells us that a game with a complexity rating of 1 would have a rating of `r round(predict(complexity_model$model[[1]], newdata = data.frame(avgweight = 1), se=T) %>% as.data.frame() %>% pull(fit),2)`. A game with a complexity rating of 5, meanwhile, would have a weight of `r round(predict(complexity_model$model[[1]], newdata = data.frame(avgweight = 5), se=T) %>% as.data.frame() %>% pull(fit),2)`.
 
 The model indicates that the complexity of a game explains about 26% of the variation in average ratings (R-squared, which simply is the correlation coefficient (R) we saw earlier squared). So it's not the only thing that matters, but it has a pretty sizeable impact on the average rating and the corresponding geek rating.
 
