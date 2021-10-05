@@ -884,6 +884,7 @@ pca_predict[2,]$viz_ind
 Now extract the neighbors
 
 ```{r extract the neighbors from this, warning=F}
+<<<<<<< HEAD
 
 new_neighbors<-pca_predict %>%
   select(dataset, neighbors) %>% 
@@ -933,6 +934,49 @@ new_recommend %>%
 ```{r write out}
 
 fwrite(new_recommend, file = paste("game_recommendations_data/", Sys.Date(), ".csv", sep=""))
+=======
+
+new_neighbors<-pca_predict %>%
+  select(dataset, neighbors) %>% 
+  unnest() %>%
+  mutate(similarity = 100*1/(1+ sqrt(dist))) %>%
+  select(dataset, game_id, name, neighbor_game_id, neighbor_name, similarity, dist, dist_rank) %>%
+  left_join(., active_games %>%
+              rename(neighbor_game_id = game_id,
+                     neighbor_name = name))
+
+new_recommend<- rec_score_func(
+  new_neighbors,
+  5000,
+  0.5,
+  10)
+
+# dataset of recommendations
+new_recommend %>%
+  left_join(., active_games %>%
+              select(game_id, rank, baverage)) %>%
+  arrange(dataset, rank) 
+
+```
+
+write this out
+
+```{r examine}
+
+
+new_recommend %>%
+  arrange(dataset, rec_rank) %>%
+  filter(name == 'Unfathomable')
+
+```
+
+
+```{r}
+
+fwrite(paste("game_recommendations_data/", Sys.Date(), ".csv", sep=""))
+
+
+>>>>>>> b30e92b223c43b6643c152f31cdc10c431315dff
 
 ```
 
