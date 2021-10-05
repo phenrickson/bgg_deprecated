@@ -1,0 +1,2330 @@
+---
+title: "Predicting BGG Ratings"
+author: Phil Henrickson
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    keep_md: true
+---
+
+This notebook is for building predictive models of boardgame ratings.
+
+```{r global seetings, echo=F, warning=F, message=F}
+
+knitr::opts_chunk$set(echo = F,
+                      dev="png",
+                      fig.width = 8,
+                      fig.height = 8)
+
+options(knitr.duplicate.label = "allow")
+
+options(scipen=999)
+
+```
+
+```{r load and set packages, warning=F, message=F, include=FALSE, results = 'hide'}
+
+source("load_packages.R")
+source("theme_phil.R")
+
+```
+
+## Connect to Big Query
+
+### Active Game Rankings
+
+We'll first connect to the most recent day of BGG data that we have in our database. These are the active rankings of games - where they stand in the BGG database as of the most recent load, which I usually update once a week.
+
+```{r connect to big query}
+
+library(bigrquery)
+
+# get project credentials
+PROJECT_ID <- "gcp-analytics-326219"
+BUCKET_NAME <- "test-bucket"
+
+
+# establish connection
+bigquerycon<-dbConnect(
+        bigrquery::bigquery(),
+        project = PROJECT_ID,
+        dataset = "bgg"
+)
+
+# query table
+active_games<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT * FROM bgg.active_games_daily')
+
+```
+
+### Additional Game Information
+
+We also want to pull down other tables containing the information that we know about games.
+
+```{r query tables with game information}
+
+# general game info
+games_info<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT * FROM bgg.active_games_info')
+
+# game categories
+game_categories<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT 
+                              a.game_id,
+                              b.category_id,
+                              b.category
+                              FROM bgg.game_categories a
+                               LEFT JOIN bgg.category_ids b 
+                               ON a.category_id = b.category_id')
+
+# game mechanics
+game_mechanics<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT 
+                              a.game_id,
+                              b.mechanic_id,
+                              b.mechanic
+                              FROM bgg.game_mechanics a
+                               LEFT JOIN bgg.mechanic_ids b 
+                               ON a.mechanic_id = b.mechanic_id')
+
+# game publishers
+game_publishers<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT 
+                              a.game_id,
+                              b.publisher_id,
+                              b.publisher
+                              FROM bgg.game_publishers a
+                               LEFT JOIN bgg.publisher_ids b 
+                               ON a.publisher_id = b.publisher_id')
+
+# game designers
+game_designers<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT 
+                              a.game_id,
+                              b.designer_id,
+                              b.designer
+                              FROM bgg.game_designers a
+                               LEFT JOIN bgg.designer_ids b 
+                               ON a.designer_id = b.designer_id')
+
+# game artists
+game_artists<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT 
+                              a.game_id,
+                              b.artist_id,
+                              b.artist
+                              FROM bgg.game_artists a
+                               LEFT JOIN bgg.artist_ids b 
+                               ON a.artist_id = b.artist_id')
+
+
+```
+
+### Exploratory Analysis
+
+We now will explore how game ratings are a function of the features we have in the dataset.
+
+```{r explore user ratings per year}
+
+active_games %>%
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2020) %>%
+  mutate(years_since_published = as.numeric(year(Sys.Date()) - yearpublished)) %>%
+  mutate(users_per_year = usersrated / years_since_published) %>%
+  select(game_id, name, yearpublished, usersrated, baverage, years_since_published, users_per_year) %>%
+  arrange(desc(users_per_year)) %>%
+  filter(users_per_year > 10) %>%
+  arrange(usersrated)
+
+# quantiles
+active_games %$%
+  quantile(usersrated,
+           probs = seq(0, 1, .1))
+
+library(fitdistrplus)
+min_ratings= 250
+baverage<-active_games %>%
+  filter(usersrated > min_ratings) %>%
+  filter(yearpublished < 2020) %>%
+  pull(baverage)
+
+# histogram with density
+baverage %>%
+  as.data.frame() %>%
+  ggplot(., aes(x=.))+
+  geom_histogram(alpha=0.8, bins= 50,aes(y=..density..)) +  # scale histogram y
+  geom_density(col="red")+
+  theme_phil()+
+  labs(caption = paste("Filtering to games published before 2020 with a minimum of", min_ratings, "user ratings.", sep=" "))
+  
+
+```
+
+I want to describe this distribution
+
+```{r try to recreate this distribution}
+
+# describe
+descdist(baverage, discrete = F,
+         boot = 1000)
+
+```
+
+Now let's try fitting a distribution.
+
+```{r fit distribution}
+
+# fit dist
+fit_lnorm<- fitdist(baverage, distr="lnorm")
+fit_logis<- fitdist(baverage, distr="logis")
+fit_gamma<- fitdist(baverage, distr="gamma")
+library(actuar)
+fit_llogis<-fitdist(baverage, distr="llogis", start = list(shape = 100, scale = 1))
+
+# compare
+# density
+denscomp(list(fit_lnorm,
+              fit_logis,
+              fit_llogis,
+              fit_gamma))
+# qq
+qqcomp(list(fit_lnorm,
+              fit_logis,
+            fit_llogis,
+              fit_gamma))
+# cdf
+cdfcomp(list(fit_lnorm,
+              fit_logis,
+             fit_llogis,
+              fit_gamma))
+
+# pp
+ppcomp(list(fit_lnorm,
+              fit_logis,
+            fit_llogis,
+              fit_gamma))
+
+
+```
+
+Goodness of fit for the three distributions
+
+```{r goodness of fit stats for each }
+
+gofstat(list(fit_logis, 
+             fit_llogis,
+             fit_lnorm, 
+             fit_gamma)) 
+
+```
+
+So, our best matching distribution looks to be the logistic.
+
+```{r simulate and compare}
+
+set.seed(1999)
+
+sim_baverage<-data.frame("value" = rllogis(7000, 
+       shape = fit_llogis$estimate[1],
+       scale = fit_llogis$estimate[2])) %>%
+  mutate(variable = "sim_baverage") %>%
+  select(variable, value)
+
+active_games %>%
+  filter(usersrated > min_ratings) %>%
+  filter(yearpublished < 2020) %>%
+  select(baverage) %>%
+  melt() %>%
+  bind_rows(sim_baverage) %>%
+  ggplot(., aes(x=value,
+                color = NULL,
+                fill = variable))+
+  geom_histogram(alpha=0.8, bins= 50,aes(y=..density..))+
+  theme_phil()+
+  scale_fill_viridis_d()
+
+```
+
+How many user ratings does it take to shift the value? Let's say we have a couple of games whose true values are 4, 6, or 8.
+
+```{r plot }
+
+
+true= c(4, 6, 8)
+n_sims = c(50, 100, 250, 500, 1000, 10000, 50000)
+start_ratings <- rep(5.5, 1000)
+
+i=1
+
+combine<-foreach(i=1:length(true),
+        .combine = bind_rows) %do% {
+          
+          foreach(j=1:length(n_sims)) %do% {
+          
+          data.frame("true_rating" = true[i],
+                     "n_sims" = n_sims[j],
+           ratings = c(start_ratings,
+                       rllogis(n_sims[j], 
+                             shape = fit_llogis$estimate[1],
+                             scale = true[i]))
+          )
+            
+          }
+        }
+
+
+# combine
+combine %>%
+  group_by(true_rating,
+           n_sims) %>%
+  summarize(mean = mean(ratings),
+            sd = sd(ratings)) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  select(n_sims, true_rating, mean, sd) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  flextable() %>%
+  autofit()
+
+# plot
+combine %>%
+  mutate(true_rating = factor(true_rating),
+         n_sims = factor(n_sims)) %>%
+  ggplot(., 
+         aes(y=true_rating,
+             x = ratings))+
+  stat_density_ridges(quantile_lines = TRUE,color = "black", quantile_fun = mean)+
+  facet_wrap(n_sims~.)+
+  theme_minimal()
+
+# combine
+combine %>%
+  group_by(true_rating,
+           n_sims) %>%
+  mutate(true_rating = factor(true_rating),
+         n_sims = factor(n_sims)) %>%
+  summarize(mean = mean(ratings),
+            sd = sd(ratings)) %>%
+  ggplot(., 
+         aes(x=n_sims,
+             y=mean,
+             group = true_rating,
+             color = true_rating))+
+  geom_point()+
+  geom_line()+
+  scale_color_viridis_d()+
+  scale_fill_viridis_d()+
+  theme_phil()
+
+
+```
+Given this, I think we could make an argument that we need to wait till a game hits 1000 ratings, but at the very least we should probably excluding at the treshhold of 250 user ratings.
+
+```{r clean up the results of this inspection, warning=F, message=F}
+
+rm(combine, 
+   output,
+   fit_gamma,
+   fit_llogis,
+   fit_lnorm,
+   fit_logis,
+   sim_gamma,
+   sim_lnorm,
+   sim_logis,
+   sim_distribution,
+   sim_baverage,
+   sim)
+
+```
+
+#### Year Published
+
+The minimum year published in our dataset is -3000, which are games like Marbles and Backgammon. If we filter to games from 1950 to 2020, we can see the rise in the geek rating of newer games.
+
+```{r plot game ratings vs year published, warning=F}
+
+#library(plotly)
+# filter to games publisehd after 19gg50
+#ggplotly(
+
+active_games %>% 
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2020) %>%
+  ggplot(., aes(x=yearpublished, 
+                label = name,
+                y=baverage,
+                size =usersrated))+
+  geom_jitter(alpha=0.5)+
+  theme_phil()+
+  theme(legend.title = element_text())+
+  guides(size = guide_legend(title = "Users Rated",
+                             title.position = "top"),
+         color = "none")+
+  xlab("Year Published")+
+  ylab("Geek Rating")
+
+```
+
+#### Weight, Playing Time, and Min/Max Players
+
+```{r plot these other two, warning=F, message=F}
+
+# hist
+active_games %>% 
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2020) %>%
+  ggplot(., aes(x=avgweight))+
+  geom_density(fill = 'grey20',
+               alpha=0.8,
+               color = NA)+
+  theme_phil()+
+  xlab("Average Weight")
+
+# plot vs bgg rating
+# scatter
+active_games %>% 
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2020) %>%
+  ggplot(., aes(x=avgweight, 
+                label = name,
+                y=baverage))+
+  geom_jitter(alpha=0.5)+
+  theme_phil()+
+  ylab("Geek Rating")+
+  xlab("Average Weight")
+
+```
+
+Playingtime
+
+```{r plot playing time, warning=F, message=F}
+
+# summary
+summary(active_games$playingtime)
+
+# which are the longest games?
+active_games %>% 
+  arrange(desc(playingtime)) %>%
+  select(game_id, name, playingtime, avgweight, baverage) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  head(100) %>%
+  flextable() %>%
+  autofit()
+
+# hist
+active_games %>% 
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2020) %>%
+  ggplot(., aes(x=log(playingtime)))+
+  geom_density(fill = 'grey20',
+               alpha=0.8,
+               color = NA)+
+  theme_phil()+
+  xlab("Playing Time in Logged Minutes")+
+  geom_vline(xintercept = log(c(15, 60, 120, 360)),
+             linetype = 'dotted')+
+  labs(caption = "Lines at 15, 60, 120, and 360, respectively")
+
+# plot vs bgg rating
+# scatter
+active_games %>% 
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2020) %>%
+  mutate(playingtime = log1p(playingtime)) %>%
+  ggplot(., aes(x=playingtime,
+                label = name,
+                y=baverage))+
+  geom_jitter(alpha=0.5)+
+  theme_phil()+
+  ylab("Geek Rating")+
+  xlab("Playing Time in Minutes (logged)")+
+  geom_vline(xintercept = log1p(c(15, 60, 120, 360)),
+             linetype = 'dotted')+
+  geom_smooth()+
+  labs(caption = "Lines at 15, 60, 120, and 360, respectively")
+
+
+# plot vs bgg rating
+# scatter
+active_games %>% 
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2020) %>%
+  filter(playingtime > 0 & playingtime < 600) %>%
+  ggplot(., aes(x=playingtime,
+                label = name,
+                y=baverage))+
+  geom_jitter(alpha=0.5)+
+  theme_phil()+
+  ylab("Geek Rating")+
+  xlab("Playing Time in Minutes")+
+  geom_smooth()
+
+
+```
+
+Min and max players
+
+```{r now look at min and max players}
+
+# scatter min players
+active_games %>% 
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2021) %>%
+  ggplot(., aes(x=minplayers,
+                y = baverage))+
+  geom_jitter(alpha=0.5)+
+  theme_phil()+
+  geom_smooth()+
+  xlab("Minimum Players")+
+  ylab("Geek Rating")
+
+# scatter min players
+active_games %>% 
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2021) %>%
+  ggplot(., aes(x=log1p(minplayers),
+                y = baverage))+
+  geom_jitter(alpha=0.5)+
+  theme_phil()+
+  geom_smooth()+
+  xlab("Minimum Players (logged)")+
+  ylab("Geek Rating")
+
+
+# scatter max players
+active_games %>% 
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2021) %>%
+  ggplot(., aes(x=maxplayers,
+                y = baverage))+
+  geom_jitter(alpha=0.5)+
+  theme_phil()+
+  geom_smooth()+
+  xlab("Maximum Players")+
+  ylab("Geek Rating")
+
+# what are theese games with a ton of players
+active_games %>% 
+  arrange(desc(maxplayers)) %>%
+  select(game_id, name, minplayers, maxplayers, avgweight, baverage) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  head(100) %>%
+  flextable() %>%
+  autofit()
+  
+# 
+active_games %>% 
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2021) %>%
+  ggplot(., aes(x=log1p(maxplayers),
+                y = baverage))+
+  geom_jitter(alpha=0.5)+
+  theme_phil()+
+  geom_smooth()+
+  xlab("Maximum Players (logged)")+
+  ylab("Geek Rating")
+
+# 
+active_games %>% 
+  filter(yearpublished > 1950) %>%
+  filter(yearpublished < 2021) %>%
+  mutate(maxplayers_trunc = case_when(maxplayers >= 12 ~ 12,
+                   TRUE ~ maxplayers)) %>%
+  arrange(desc(maxplayers_trunc)) %>%
+  ggplot(., aes(x=maxplayers_trunc,
+                y = baverage))+
+  geom_jitter(alpha=0.5)+
+  theme_phil()+
+  geom_smooth()+
+  xlab("Maximum Players Truncated")+
+  ylab("Geek Rating")
+
+```
+
+What about playing time per player?
+
+```{r playing time per player, warning=F, message=F}
+
+# distribution
+active_games %>%
+  select(game_id, name, baverage, playingtime, minplaytime, maxplaytime, minplayers, maxplayers) %>%
+  arrange(game_id) %>%
+  mutate(minplayers = case_when(minplayers == 0 ~ 1,
+                                TRUE ~ minplayers)) %>%
+  mutate(maxplayers = case_when(maxplayers == 0 ~ minplayers,
+                                TRUE ~ maxplayers)) %>%
+  mutate(time_per_player = maxplaytime / maxplayers) %>%
+  ggplot(., aes(x=log1p(time_per_player)))+
+  geom_density(fill = 'grey20',
+               color =NA,
+               alpha=0.8)+
+  theme_phil()+
+  xlab("Time Per Player (logged)")
+
+# scatter
+active_games %>%
+  select(game_id, name, baverage, playingtime, minplaytime, maxplaytime, minplayers, maxplayers) %>%
+  arrange(game_id) %>%
+  mutate(minplayers = case_when(minplayers == 0 ~ 1,
+                                TRUE ~ minplayers)) %>%
+  mutate(maxplayers = case_when(maxplayers == 0 ~ minplayers,
+                                TRUE ~ maxplayers)) %>%
+  mutate(time_per_player = maxplaytime / maxplayers) %>%
+  ggplot(., aes(x=log1p(time_per_player),
+                y=baverage))+
+  geom_jitter(alpha=0.5)+
+  theme_phil()+
+  geom_smooth()+
+  xlab("Playing Time per Player (logged)")+
+  ylab("Geek Rating")
+
+```
+
+#### Game Ratings by Category
+
+```{r explore ratings by category, fig.height=4}
+
+# filter to games with publishers that had at least 300 games
+# jitter plot
+active_games %>%
+  left_join(., game_categories,
+            by = "game_id") %>%
+  select(timestamp, game_id, name, category_id, category, everything()) %>%
+  filter(!is.na(category)) %>%
+  #filter(category_id %in% top_categorys$category_id) %>%
+  filter(yearpublished<2021) %>%
+  group_by(category_id) %>%
+  mutate(median_rating = median(baverage),
+         n_games = n_distinct(game_id)) %>%
+  ungroup() %>%
+  filter(n_games > 200) %>%
+  ggplot(., aes(x=reorder(category, 
+                          median_rating),
+                y=baverage))+
+  geom_jitter(width=0.2,
+              height=0,
+              alpha=0.25)+
+  coord_flip(ylim = c(4, 8.5))+
+  theme_phil()+
+  geom_boxplot(alpha=0.75)+
+  xlab("Game Category")+
+  ylab("Geek Rating")+
+  ggtitle("Geek Rating by Game Category",
+          subtitle = str_wrap("Displaying Geek Ratings for all games published prior to 2021 for categories with at least 200 games. Points jittered to improve visibility.", 125))+
+  labs(caption=paste("Data from boardgamegeek.com as of", max(as.Date(active_games$timestamp))))+
+  theme(plot.title = element_text(size=12),
+        plot.subtitle =  element_text(size=10),
+        axis.text.y = element_text(size=8))
+
+```
+
+#### Game Ratings by Mechanic
+
+Look at ratings by mechanic.
+
+```{r table of top mechanics}
+
+top_mechanics<-active_games %>%
+  filter(yearpublished<2021) %>%
+  left_join(., game_mechanics,
+            by = "game_id") %>%
+  select(timestamp, game_id, name, mechanic_id, mechanic, everything()) %>%
+  filter(!is.na(mechanic)) %>%
+  group_by(mechanic_id, mechanic) %>%
+  summarize(games = n_distinct(game_id),
+            median_rating = median(baverage, na.rm=T),
+            sd_rating = sd(baverage, na.rm=T),
+            .groups = 'drop') %>%
+  ungroup() %>%
+  filter(games > 10) %>%
+  arrange(desc(median_rating)) %>%
+  arrange(desc(games))
+
+top_mechanics %>%
+    mutate_if(is.numeric, round ,2) %>%
+    rename(`Mechanic ID` = mechanic_id,
+         `Mechanic` = mechanic,
+         `# Games` = games,
+         `Median Rating` = median_rating,
+         `SD Rating` = sd_rating) %>%
+  arrange(desc(`Median Rating`)) %>%
+  DT::datatable()
+  
+```
+
+Plot the distribution by mechanic, filtering to games with only a set number.
+
+```{r plot by mechanics, fig.height=4}
+
+# filter to games with publishers that had at least 300 games
+active_games %>%
+  left_join(., game_mechanics,
+            by = "game_id") %>%
+  select(timestamp, game_id, name, mechanic_id, mechanic, everything()) %>%
+  filter(!is.na(mechanic)) %>%
+  #filter(mechanic_id %in% top_mechanics$mechanic_id) %>%
+  filter(yearpublished<2021) %>%
+  group_by(mechanic_id) %>%
+  mutate(median_rating = median(baverage),
+         n_games = n_distinct(game_id)) %>%
+  ungroup() %>%
+  filter(n_games > 200) %>%
+  ggplot(., aes(x=reorder(mechanic, 
+                          median_rating),
+                y=baverage))+
+  geom_jitter(width=0.2,
+              height=0,
+              alpha=0.25)+
+  coord_flip(ylim = c(4, 8.5))+
+  theme_phil()+
+  geom_boxplot(alpha=0.75)+
+  xlab("Game Mechanic")+
+  ylab("Geek Rating")+
+  ggtitle("Geek Rating by Game Mechanic",
+          subtitle = str_wrap("Displaying Geek Ratings for all games published prior to 2021 for game publishers with at least 150 games", 125))+
+  labs(caption=paste("Data from boardgamegeek.com as of", max(as.Date(active_games$timestamp))))+
+  theme(plot.title = element_text(size=12),
+        plot.subtitle =  element_text(size=10),
+        axis.text.y = element_text(size=8))
+
+
+
+```
+
+## Predictive Modeling
+
+Let's now turn to the task of predictive modeling.
+
+Our outcome is the geek rating, which is a function of the games average + the number of user ratings.
+
+
+```{r plot games and user ratings, warning=F, message=F}
+
+active_games %>%
+              filter(yearpublished < 2020) %>%
+              mutate(min_user_ratings = 100) %>%
+              nest(-min_user_ratings) %>%
+  bind_rows(.,
+            active_games %>%
+              filter(yearpublished < 2020) %>%
+              mutate(min_user_ratings = 250) %>%
+              nest(-min_user_ratings)) %>%
+    bind_rows(.,
+            active_games %>%
+              filter(yearpublished < 2020) %>%
+              mutate(min_user_ratings = 1000) %>%
+              nest(-min_user_ratings)) %>%
+  unnest() %>%
+  filter(usersrated < min_user_ratings) %>%
+  select(min_user_ratings, usersrated, baverage) %>%
+  mutate(min_user_ratings = factor(min_user_ratings)) %>%
+  melt(id.vars=c("min_user_ratings")) %>%
+  ggplot(., aes(x=value,
+                fill = min_user_ratings,
+                color = min_user_ratings)) +
+  geom_density(alpha=0.8)+
+  facet_wrap(variable~.,
+             scales="free",
+             ncol =1)+
+  theme_phil()+
+  scale_fill_viridis_d()+
+  scale_color_viridis_d()
+
+
+```
+
+### Create Game Dataset
+
+```{r pivot and join}
+
+# combine all
+games_train<-active_games %>%
+  filter(usersrated >= 250) %>% # set a minimum threshold
+  select(timestamp, game_id, name, average, baverage, usersrated) %>%
+  left_join(., games_info %>% # join game info
+              select(game_id, yearpublished, avgweight, minage, minplayers, maxplayers, playingtime),
+            by = c("game_id")) %>%
+  filter(yearpublished < 2020) %>% # use games prior to 2020 as our training set
+  left_join(., game_categories %>% # join categories
+              mutate(category = gsub("\\)", "", gsub("\\(", "", category))) %>%
+              mutate(category = tolower(paste("cat", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", category))), sep="_"))) %>%
+              mutate(has_category = 1) %>%
+              select(-category_id) %>%
+              pivot_wider(names_from = c("category"),
+                          values_from = c("has_category"),
+                          id_cols = c("game_id"),
+                          names_sep = "_",
+                          values_fn = min,
+                          values_fill = 0),
+            by = c("game_id")) %>%
+  left_join(., game_mechanics %>% # join mechanics
+              mutate(mechanic = tolower(paste("mech", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", mechanic))), sep="_"))) %>%
+              mutate(has_mechanic = 1) %>%
+              select(-mechanic_id) %>%
+              pivot_wider(names_from = c("mechanic"),
+                          values_from = c("has_mechanic"),
+                          id_cols = c("game_id"),
+                          names_sep = "_",
+                          values_fn = min,
+                          values_fill = 0),
+            by = c("game_id")) %>%
+      left_join(., game_designers %>% # join designers
+              mutate(designer = gsub("\\)", "", gsub("\\(", "", designer))) %>%
+              mutate(designer = tolower(paste("des", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", designer))), sep="_"))) %>%
+              mutate(has_designer = 1) %>%
+              select(-designer_id) %>%
+              pivot_wider(names_from = c("designer"),
+                          values_from = c("has_designer"),
+                          id_cols = c("game_id"),
+                          names_sep = "_",
+                          values_fn = min,
+                          values_fill = 0),
+            by = c("game_id")) 
+
+  # left_join(., game_publishers %>% # join publishers
+  #             mutate(publisher = gsub("\\)", "", gsub("\\(", "", publisher))) %>%
+  #             mutate(publisher = tolower(paste("pub", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", publisher))), sep="_"))) %>%
+  #             mutate(has_publisher = 1) %>%
+  #             select(-publisher_id) %>%
+  #             pivot_wider(names_from = c("publisher"),
+  #                         values_from = c("has_publisher"),
+  #                         id_cols = c("game_id"),
+  #                         names_sep = "_",
+  #                         values_fn = min,
+  #                         values_fill = 0),
+  #           by = c("game_id")) %>%
+  #     left_join(., game_designers %>% # join designers
+  #             mutate(designer = gsub("\\)", "", gsub("\\(", "", designer))) %>%
+  #             mutate(designer = tolower(paste("des", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", designer))), sep="_"))) %>%
+  #             mutate(has_designer = 1) %>%
+  #             select(-designer_id) %>%
+  #             pivot_wider(names_from = c("designer"),
+  #                         values_from = c("has_designer"),
+  #                         id_cols = c("game_id"),
+  #                         names_sep = "_",
+  #                         values_fn = min,
+  #                         values_fill = 0),
+  #           by = c("game_id")) 
+
+        # left_join(., game_artists %>% # join artists
+        #       mutate(artist = gsub("\\)", "", gsub("\\(", "", artist))) %>%
+        #       mutate(artist = tolower(paste("artist", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", artist))), sep="_"))) %>%
+        #       mutate(has_artist = 1) %>%
+        #       select(-artist_id) %>%
+        #       pivot_wider(names_from = c("artist"),
+        #                   values_from = c("has_artist"),
+        #                   id_cols = c("game_id"),
+        #                   names_sep = "_",
+        #                   values_fn = min,
+        #                   values_fill = 0),
+        #     by = c("game_id"))
+
+```
+
+##  Predicting Geek Rating
+
+We'll create a recipe for our baseline model, which only uses observable game info such as playing time, player counts, complexity (more on this later), and categories + mechanics.
+
+```{r create recipe on our training set}
+
+recipe_base<- recipe(baverage~., x = games_train) %>%
+  update_role(timestamp,
+              usersrated,
+              game_id,
+              name,
+              average,
+              new_role = "id") %>%
+  #step_filter(usersrated >=100) %>%
+  step_filter(!is.na(yearpublished)) %>%
+  step_filter(
+      cat_collectible_components !=1 &
+      cat_expansion_for_basegame != 1) %>% # remove specific categories that count expansions
+  step_mutate(yearpublished = case_when(yearpublished <= 1950 ~ 1950,
+                                         TRUE ~ as.numeric(yearpublished))) %>% # truncate yearpublished
+  step_impute_median(avgweight,
+                    minplayers,
+                    maxplayers,
+                    playingtime,
+                    minage) %>% # medianimpute numeric predictors
+  step_mutate(minplayers = case_when(minplayers < 1 ~ 1,
+                                     minplayers > 10 ~ 10,
+                                     TRUE ~ minplayers),
+              maxplayers = case_when(maxplayers < 1 ~ minplayers,
+                                     maxplayers > 20 ~ 20,
+                                     TRUE ~ maxplayers)) %>% # truncate player range
+  step_mutate(time_per_player = playingtime/ maxplayers) %>% # make time per player variable
+  step_mutate_at(starts_with("cat_"),
+           fn = ~ replace_na(., 0)) %>%
+  step_mutate_at(starts_with("mech_"),
+           fn = ~ replace_na(., 0)) %>%
+  step_mutate_at(starts_with("des_"),
+           fn = ~ replace_na(., 0)) %>%
+  step_mutate(number_mechanics = rowSums(across(starts_with("mech_"))),
+        number_designers = rowSums(across(starts_with("des_"))),
+        number_categories = rowSums(across(starts_with("cat_")))) %>%
+  step_mutate(fam_starwars = case_when(grepl("Star Wars", name) ~ 1,
+                                       TRUE ~ 0)) %>%
+  step_mutate(fam_catan = case_when(grepl("Catan", name) ~ 1,
+                                    TRUE ~ 0)) %>%
+  step_mutate(fam_ttr = case_when(grepl("Ticket to Ride") ~ 1,
+                                  TRUE ~ 0)) %>%
+ # step_mutate(fam_starwars = grepl("Star Wars", name))
+  step_log(playingtime,
+           time_per_player,
+           offset = 1) %>%
+  step_zv(all_predictors()) %>%
+  step_nzv(all_predictors(),
+           freq_cut = 99/1) %>%
+  check_missing(all_numeric_predictors())
+
+
+# normalize
+recipe_norm<-recipe_base %>%
+  step_normalize(all_predictors())
+
+# summary of recipe
+summary(recipe_base)
+
+```
+
+#### Baseline Error Rate
+
+Before we get into modeling, let's establish up front the baseline accuracy of a null model. If we were to simply predict the mean for every game, how well would we do?
+
+```{r establish baseline, warning=F}
+
+# specify regression metrics
+reg_metrics<-metric_set(yardstick::rmse,
+                        yardstick::rsq,
+                        yardstick::mae,
+                        yardstick::mape)
+
+#  get performance of baseline
+null_results<-games_train %>%
+  select(baverage) %>%
+  mutate(pred = mean(baverage)) %>%
+  reg_metrics(truth = baverage,
+              estimate = pred) %>%
+  filter(!is.na(.estimate)) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  mutate(model = "null") %>%
+  select(model, everything())
+
+null_results
+
+```
+
+### Worfklow with tidymodels
+
+Now that we have our recipe in place, we can proceed to building a modeling workflow. We'll set up cross validation on our training set for tuning models which rely on tuning parameters.
+
+```{r set up validation set, warning=F, message=F}
+library(rsample)
+
+set.seed(234)
+train_folds<-vfold_cv(games_train, 
+                      strata = baverage,
+                      n=5)
+
+```
+
+Now we'll set up the models we plan to use, which to start will be a penalized logit, a logistic regression fit with Stan, and gradient boosted trees.
+
+```{r specify models}
+
+library(tidymodels)
+library(workflows)
+
+# simple linear regression
+lm_mod <- 
+  linear_reg() %>% 
+  set_engine("lm")
+
+# stan linear regression
+set.seed(123)
+prior_dist <- rstanarm::student_t(df = 1)
+
+stan_lm_mod <-   
+  linear_reg() %>% 
+  set_engine("stan", 
+             prior_intercept = prior_dist, 
+             prior = prior_dist,
+             iter = 4000)
+
+# penalized linear regression
+glmnet_mod<- 
+  linear_reg(penalty = tune::tune(),
+             mixture = 0.5) %>%
+  set_engine("glmnet")
+
+```
+
+##### Penalized Regression
+
+Now build the workflow and train the model.
+
+```{r set up workflow}
+
+# specify grid for tuning
+glmnet_grid <- tibble(penalty = 10^seq(-4, -1, 
+                                       length.out = 30))
+
+# build workflow
+set.seed(1999)
+glmnet_workflow<-
+  workflow() %>% 
+  add_model(glmnet_mod) %>% 
+  add_recipe(recipe_norm %>%
+               step_normalize(all_predictors()))
+
+# tune
+glmnet_results <-
+  glmnet_workflow %>%
+  tune_grid(train_folds,
+            grid = glmnet_grid,
+            control = control_grid(save_pred = TRUE),
+            metrics = reg_metrics) %>%
+  mutate(model = "glmnet")
+
+```
+
+Let's look at the results across the tuning range.
+
+```{r show tuning range for glmnet}
+
+# plot
+glmnet_results %>%
+  collect_metrics() %>%
+  ggplot(., aes(x=penalty,
+                y=mean))+
+  geom_line()+
+  facet_wrap(model~.metric,
+             scales="free_y")+
+  theme_phil()
+
+```
+
+
+```{r plot predictions glmnet}
+ 
+# grab the best tuning results
+glmnet_best<-glmnet_results %>%
+  select_best("rmse")
+
+# what were our best results
+glmnet_results %>% 
+  collect_metrics() %>%
+  filter(penalty == glmnet_best$penalty) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  select(model, .metric, mean, std_err)
+  
+# grab the predictions and plot
+glmnet_results %>%
+  collect_predictions(parameters = glmnet_best) %>%
+  mutate(model = "glmnet") %>%
+  ggplot(., aes(x=.pred,
+                y=baverage))+
+  geom_point(alpha=0.5)+
+  facet_wrap(model~.)+
+  theme_phil()+
+  geom_smooth(formula = y ~ x, method = "loess")+
+  coord_cartesian(xlim = c(3.5, 9),
+                  ylim = c(3.5, 9))+
+  stat_cor(label.x = 3.5,
+           p.accuracy = 0.001)+
+  geom_abline(slope =1,
+              intercept = 0,
+              col = "grey60",
+              linetype = 'dashed')
+
+```
+Let's take a look at the predictions.
+
+```{r get predictions from glmnet}
+
+
+# baked data
+baked_train<- recipe_base %>%
+  prep(games_train) %>%
+  bake(games_train) %>%
+  mutate(.row = row_number())
+
+# set color functions
+col_func<- function(x) {
+  
+  breaks<-quantile(x, probs = seq(0, 1, by=.1), na.rm=T) %>% as.vector()
+#  breaks = weight_deciles
+  colorRamp=colorRampPalette(c("red", "white", "deepskyblue1"))
+  col_palette <- colorRamp(length(breaks))
+  mycut <- cut(x, 
+    breaks = breaks,
+    include.lowest = TRUE, 
+    right=T,
+    label = FALSE)
+  col_palette[mycut]
+  
+}
+
+samp<-baked_train %>%
+  mutate(strata = plyr::round_any(baverage, .5)) %>%
+  select(game_id, strata) %>%
+  group_by(strata) %>%
+  filter(strata > 5 & strata <8.5) %>%
+  sample_n(size=8) %>%
+  pull(game_id)
+
+# get predictions
+glmnet_results %>%
+  collect_predictions(parameters = glmnet_best) %>%
+  left_join(., baked_train) %>%
+  arrange(.row) %>%
+  select(id, .pred, .row, baverage, game_id, name) %>%
+  filter(game_id %in% samp) %>%
+  arrange(desc(.pred)) %>%
+  mutate(game_id = as.character(game_id)) %>%
+  mutate(model = "glmnet") %>%
+  select(model, game_id, name, .pred, baverage) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  flextable() %>%
+  autofit() %>%
+        bg(j = c('.pred', 'baverage'),
+           bg = col_func)
+
+
+  # ggplot(., aes(x=.pred,
+  #               label = name,
+  #               y= baverage))+
+  # geom_point()+
+  # geom_label_repel(max.overlaps=10,
+  #                  size = 2.5)+
+  # theme_phil()+
+  # geom_abline(slope =1,
+  #        intercept=0,
+  #        linetype = 'dashed')
+
+glmnet_fit<-glmnet_workflow %>%
+  finalize_workflow(glmnet_best) %>%
+  fit(games_train)
+
+glmnet_coefs<-glmnet_fit %>%
+  extract_fit_parsnip() %>%
+  tidy() %>%
+  filter(term != '(Intercept)')
+
+
+```
+
+
+```{r examine predictions from training, warning=F, message=F, eval=F, fig.height=4}
+
+glmnet_results %>%
+  collect_predictions() %>%
+  left_join(., baked_train) %>%
+  filter(game_id %in% samp) %>%
+   ggplot(., aes(x=reorder(name,
+                           .pred),
+                 color = penalty,
+                 y=.pred))+
+   geom_point(size=0.8, 
+              alpha=0.8)+
+   theme_phil()+
+   xlab("")+
+  ylab("Prediction")+
+   theme(axis.text.y = element_text(size = 6),
+         legend.title = element_text())+
+   guides(color = guide_colorbar(barwidth = 10,
+                                 barheight = 0.4,
+                                 title.position = "top")) +
+   geom_point(data = glmnet_results %>%
+    collect_predictions(parameters = glmnet_best) %>%
+    left_join(., baked_train) %>%
+    filter(game_id %in% samp),
+                aes(x=reorder(name, 
+                              .pred),
+                   y=baverage),
+                col = "red")+
+   coord_flip()
+
+```
+Let's extract the coefficients from the best model, as well as show the variable trace plot for tuning.
+
+```{r show the damn coef plots, fig.height=4}
+
+glmnet_coefs<-glmnet_workflow %>%
+  finalize_workflow(glmnet_best) %>%
+  fit(games_train) %>%
+  extract_fit_parsnip() %>%
+  tidy() %>%
+  filter(term != '(Intercept)')
+
+
+rename_func<-function(x) {
+  
+  x<-gsub("cat_memory", "cat_memory_game", x)
+  x<-gsub("cat_","", x)
+  x<-gsub("mech_","", x)
+  x<-gsub("pub_","", x)
+  x<-gsub("avgweight", "Average Weight", x)
+  x<-gsub("yearpublished", "Year Published", x)
+  x<-gsub("minage", "Min Age", x)
+  x<-gsub("playingtime", "Playing Time", x)
+  x<-gsub("maxplayers", "Max Players", x)
+  x<-gsub("minplayers", "Min Players", x)
+  x<-gsub("_", " ", x)
+
+  str_to_title(x)
+
+}
+
+# now make coef plot
+glmnet_coefs %>%
+  filter(abs(estimate) > .01) %>%
+  mutate(term = rename_func(term)) %>%
+  ggplot(., aes(x = reorder(term, estimate),
+                y=estimate))+
+  coord_flip()+
+  geom_point()+
+  theme_phil()+
+  geom_hline(yintercept = 0)+
+  xlab("predictor")
+                
+```
+
+#### Bayesian Linear Regression
+
+Let's now fit our bayesian model as well. We'll fit to our training folds in order to estimate our out of sample error - this is slightly computationally taxing and we could do better to use the loo package to estimate the model's performance, but we'll use the training folds to directly compare to our other models.
+
+```{r fit bayesian lienar regression}
+
+# build workflow
+set.seed(1999)
+stan_lm_workflow<-
+  workflow() %>% 
+  add_model(stan_lm_mod) %>% 
+  add_recipe(recipe_norm)
+
+# fit
+stan_lm_results <-stan_lm_workflow %>%
+  fit_resamples(train_folds,
+            control = control_grid(save_pred = TRUE),
+            metrics = reg_metrics)
+
+```
+
+We can look at the predictions from Stan
+
+```{r get preds from stan}
+
+# get the resampling results
+stan_lm_results %>%
+  collect_metrics()
+
+stan_lm_results %>%
+  collect_predictions() %>%
+  arrange(.row) %>%
+  left_join(., baked_train) %>%
+  arrange(desc(.pred)) %>%
+  ggplot(., aes(x=.pred, y=baverage))+
+  geom_point(alpha=0.25)+
+    geom_smooth(formula = y ~ x, method = "loess")+
+  coord_cartesian(xlim = c(3.5, 9),
+                  ylim = c(3.5, 9))+
+  stat_cor(label.x = 3.5,
+           p.accuracy = 0.001)+
+  geom_abline(slope =1,
+              intercept = 0,
+              col = "grey60",
+              linetype = 'dashed')+
+  theme_phil()
+
+```
+
+The biggest utility of using Stan to train our linear model is that we can easily simuluate from it to display the uncertainty around our parameter estimates, as well as the uncertainty around our predictions. For this we'll grab the full model.
+
+```{r predict folds, echo=F, warning=F}
+
+set.seed(1999)
+stan_fit<-stan_lm_workflow %>%
+  fit(games_train) %>%
+  extract_fit_parsnip()
+
+```
+
+```{r get model fit from stan, fig.height=4}
+
+library(tidybayes)
+library(broom.mixed)
+
+stan_fit %>%
+  tidy(conf.int=T) %>% 
+  arrange(desc(estimate)) %>%
+  filter(term != '(Intercept)') %>%
+  mutate(term = rename_func(term)) %>%
+  ggplot(., aes(x=reorder(term,
+                          estimate),
+                y=estimate,
+                ymin = conf.low,
+                ymax = conf.high))+
+  geom_pointrange(size = 0.1)+
+  coord_flip()+
+  geom_hline(yintercept = 0)+
+  ylab("Estimate")+
+  xlab("")+
+  theme_phil()+
+  theme(axis.text.y = element_text(size = 6))+
+  theme(panel.grid.major = element_blank())
+  
+```
+
+We can also get the predictive interval for each individual predictions, sampling from the posterior or by getting the loo predictive interval.
+
+```{r get predictive interval from stan model, fig.height=4}
+
+set.seed(1999)
+baked_train_norm <-
+  baked_train<- recipe_norm %>%
+  prep(games_train) %>%
+  bake(games_train) %>%
+  mutate(.row = row_number())
+
+# posterior predict
+pred<-stan_fit$fit %>%
+  posterior_predict(baked_train_norm)
+
+# temp_dat
+temp_dat<-pred %>%
+  tidy_draws() %>%
+  melt(id.vars = c(".chain",
+                   ".iteration",
+                   ".draw")) %>%
+  mutate(.row = as.integer(variable)) %>%
+  left_join(., baked_train_norm %>%
+              select(game_id, name, baverage, .row)) %>%
+  filter(game_id %in% samp)
+  
+# plot each simulation
+temp_dat %>%
+  ggplot(., aes(x=reorder(name,
+                         baverage),
+                y=value)) +
+#  geom_density_ridges()+
+  geom_point(alpha=0.05,
+             col = "grey60",
+             size=0.8)+
+  coord_flip() +
+  theme_phil()+
+  geom_point(data = temp_dat,
+             aes(x=reorder(name,
+                           baverage),
+                 y=baverage),
+             col = "blue")+
+  ylab("Simulated Ratings from Model")+
+  xlab("")
+
+# get just the predictive interval
+t(apply(pred, 2, quantile, probs = c(.05, .1, .9, .95))) %>%
+  as_tibble() %>%
+  mutate(.row = row_number()) %>%
+  left_join(., baked_train_norm %>%
+              select(game_id, name, baverage, .row)) %>%
+  filter(game_id %in% samp) %>%
+  ggplot(., aes(x=reorder(name,
+                         baverage),
+               y=baverage,
+                ymin = `5%`,
+               ymax = `95%`)) +
+  geom_pointrange()+
+#  geom_density_ridges()+
+  geom_point(alpha=0.05,
+             col = "grey60",
+             size=0.8)+
+  coord_flip() +
+  theme_phil()
+
+
+```
+We can plot simulated datsets from our model against the observed data
+
+```{r simultae from posterior vs}
+
+# get osterior predictions
+stan_pred <- posterior_predict(stan_fit$fit)
+
+samps<-sample(1:nrow(stan_pred),
+              50)
+
+# pull from dataset
+bayesplot::ppc_dens_overlay(y = stan_fit$fit$y,
+                            yrep = stan_pred[samps,])
+
+```
+
+
+#### xgbTree
+
+Let's up the flexibility of the model and turn to our old favorite, gradient boosted trees.
+
+```{r create xgbTree workflow}
+
+# XGBoost model specification
+xgbTree_mod <- 
+  parsnip::boost_tree(
+    mode = "regression",
+    trees = tune::tune(),
+    sample_size = tune::tune(),
+    min_n = tune::tune(),
+    tree_depth = tune::tune()) %>%
+    set_engine("xgboost", objective = "reg:squarederror")
+
+```
+
+Now create the tuning grid.
+
+```{r tuning grid for xgbTree}
+
+# parameter speciofication
+xgbTree_params <- 
+  dials::parameters(
+    trees(),
+    sample_size(),
+    min_n(),
+    tree_depth()
+    # learn_rate(),
+    # loss_reduction()
+  )
+
+# grod
+xgbTree_grid <- 
+  expand.grid(
+    sample_size = c(0.5, 0.75, 0.95),
+    trees = c(500, ),
+    min_n = c(5,10,15, 30, 50),
+    tree_depth = c(1,2, 3, 4,5)
+  )
+
+  #             learn_rate = .c
+  # dials::grid_max_entropy(
+  #   xgbTree_params, 
+  #   size = 5
+  #)
+
+```
+
+Now create the workflow and tune the model.
+
+```{r tune workflow for xgbTree}
+
+# build workflow
+set.seed(1999)
+xgbTree_workflow<-
+  workflow() %>% 
+  add_model(xgbTree_mod) %>% 
+  add_recipe(recipe_base)
+
+# tune
+xgbTree_results <-
+  xgbTree_workflow %>%
+  tune_grid(train_folds,
+            grid = xgbTree_grid,
+            control = control_grid(save_pred = TRUE),
+            metrics = reg_metrics)
+
+```
+
+Gather the results as before.
+
+```{r plot results across tuning metrics for xgbTree}
+
+# plot
+xgbTree_results %>%
+  collect_metrics() %>%
+  select(min_n, tree_depth, sample_size, .metric, mean) %>%
+  filter(.metric == 'rmse') %>%
+ # filter(sample_size == 0.5) %>%
+  mutate(model = "xgbTree") %>%
+  ggplot(., aes(x=min_n,
+                y=mean,
+                dodge = sample_size,
+                group= tree_depth,
+                color = factor(tree_depth)))+
+    geom_point()+
+    geom_line()+
+    facet_wrap(.metric ~ sample_size)+
+  theme_phil()+
+  scale_color_viridis_d()
+
+
+```
+
+Get predictions
+
+```{r xgbtree}
+
+xgbTree_best<-xgbTree_results %>%
+  select_best("rmse")
+
+xgbTree_results %>%
+  collect_predictions(parameters = xgbTree_best) %>%
+  mutate(model = "xgbTree") %>%
+  arrange(.row) %>%
+  ggplot(., aes(x=.pred,
+                y=baverage))+
+  geom_point(alpha=0.5)+
+  facet_wrap(model~.)+
+  theme_phil()+
+  geom_smooth(formula = y ~ x, method = "loess")+
+  coord_cartesian(xlim = c(3.5, 9),
+                  ylim = c(3.5, 9))+
+  stat_cor(label.x = 3.5,
+           p.accuracy = 0.001)+
+  geom_abline(slope =1,
+              intercept = 0,
+              col = "grey60",
+              linetype = 'dashed')
+  
+```
+
+look at results
+
+```{r look at the predictions from the boosted trees}
+
+xgbTree_results %>%
+  collect_predictions(parameters = xgbTree_best) %>%
+  mutate(model = "xgbTree") %>% 
+  arrange(.row) %>%
+  left_join(., baked_train) %>%
+  select(.pred, .row, baverage, game_id, name, yearpublished) %>%
+  filter(yearpublished == 2019) %>%
+  arrange(desc(.pred)) %>%
+  mutate(pred_rank = row_number()) %>%
+  arrange(desc(baverage)) %>%
+  mutate(bgg_rank = row_number()) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  rename(pred_rating = .pred,
+         bgg_rating = baverage) %>%
+  mutate(yearpublished = as.character(yearpublished),
+         game_id = as.character(yearpublished)) %>%
+  select(yearpublished, game_id, name, pred_rating, bgg_rating, pred_rank, bgg_rank) %>%
+  arrange(pred_rank) %>%
+  # mutate(diff_rank = pred_rank - bgg_rank) %>%
+  # arrange(diff_rank) %>%
+  flextable() %>%
+  autofit()
+  
+```
+
+plot of ranks
+
+```{r plot rank vs rank}
+
+xgbTree_results %>%
+  collect_predictions(parameters = xgbTree_best) %>%
+  mutate(model = "xgbTree") %>% 
+  arrange(.row) %>%
+  left_join(., baked_train) %>%
+  select(.pred, .row, baverage, game_id, name, yearpublished) %>%
+  filter(yearpublished == 2019) %>%
+  arrange(desc(.pred)) %>%
+  mutate(pred_rank = row_number()) %>%
+  arrange(desc(baverage)) %>%
+  mutate(bgg_rank = row_number()) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  rename(pred_rating = .pred,
+         bgg_rating = baverage) %>%
+  mutate(yearpublished = as.character(yearpublished),
+         game_id = as.character(yearpublished)) %>%
+  select(yearpublished, game_id, name, pred_rating, bgg_rating, pred_rank, bgg_rank) %>%
+  arrange(pred_rank) %>%
+  ungroup() %>%
+  ggplot(., aes(x=pred_rank,
+                y=bgg_rank))+
+  geom_point()+
+  geom_smooth(formula = "y ~ x",
+              method = "loess")+
+  theme_phil()+
+  stat_cor(p.accuracy = 0.001)+
+  geom_abline(slope=1,
+              intercept=0)
+
+
+```
+
+variable importance
+
+```{r extract xgbTree model}
+
+library(vip)
+
+xgbTree_fit<-xgbTree_workflow %>%
+  finalize_workflow(xgbTree_best) %>%
+  fit(games_train) %>%
+  extract_fit_parsnip()
+
+# variable importance
+vip(xgbTree_fit$fit,
+    num_features =50,
+    all_permutations = T) +
+  theme_phil()
+
+```
+
+### Evaluate on 2020
+
+```{r eval on 2020}
+
+# set color functions
+col_func<- function(x) {
+  
+  breaks<-quantile(x, probs = seq(0, 1, by=.1), na.rm=T) %>% as.vector()
+#  breaks = weight_deciles
+  colorRamp=colorRampPalette(c("red", "white", "deepskyblue1"))
+  col_palette <- colorRamp(length(breaks))
+  mycut <- cut(x, 
+    breaks = breaks,
+    include.lowest = TRUE, 
+    right=T,
+    label = FALSE)
+  col_palette[mycut]
+  
+}
+
+# combine all
+games_test<-active_games %>%
+ # filter(usersrated >= 250) %>% # set a minimum threshold
+  select(timestamp, game_id, name, average, baverage, usersrated) %>%
+  left_join(., games_info %>% # join game info
+              select(game_id, yearpublished, avgweight, minage, minplayers, maxplayers, playingtime),
+            by = c("game_id")) %>%
+  filter(yearpublished == 2020) %>% # use games prior to 2020 as our training set
+  left_join(., game_categories %>% # join categories
+              mutate(category = gsub("\\)", "", gsub("\\(", "", category))) %>%
+              mutate(category = tolower(paste("cat", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", category))), sep="_"))) %>%
+              mutate(has_category = 1) %>%
+              select(-category_id) %>%
+              pivot_wider(names_from = c("category"),
+                          values_from = c("has_category"),
+                          id_cols = c("game_id"),
+                          names_sep = "_",
+                          values_fn = min,
+                          values_fill = 0),
+            by = c("game_id")) %>%
+  left_join(., game_mechanics %>% # join mechanics
+              mutate(mechanic = tolower(paste("mech", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", mechanic))), sep="_"))) %>%
+              mutate(has_mechanic = 1) %>%
+              select(-mechanic_id) %>%
+              pivot_wider(names_from = c("mechanic"),
+                          values_from = c("has_mechanic"),
+                          id_cols = c("game_id"),
+                          names_sep = "_",
+                          values_fn = min,
+                          values_fill = 0),
+            by = c("game_id")) 
+
+# glmnet
+glmnet_pred<-glmnet_workflow %>%
+  finalize_workflow(parameters = glmnet_best) %>%
+  fit(games_train) %>%
+  predict(games_test)
+
+# stan
+stan_pred<-stan_lm_workflow %>%
+  fit(games_train) %>%
+  predict(games_test)
+
+# xgbTree
+xgbTree_pred<-xgbTree_workflow %>%
+  finalize_workflow(parameters = xgbTree_best) %>%
+  fit(games_train) %>%
+  predict(games_test)
+
+# 
+data.frame("glmnet" = glmnet_pred$.pred,
+           "stan_lm" = stan_pred$.pred,
+           "xgbTree" = xgbTree_pred$.pred) %>%
+  cbind.data.frame(games_test) %>%
+  arrange(desc(stan_lm)) %>%
+  mutate(yearpublished = as.character(yearpublished),
+         game_id = as.character(game_id)) %>%
+  select(yearpublished, game_id, name, baverage, stan_lm, xgbTree) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  flextable() %>%
+  autofit() %>%
+  bg(j = c('baverage', 'stan_lm', 'xgbTree'),
+  bg = col_func)
+
+```
+
+#### 2021
+
+```{r predict 2021}
+
+# combine all
+games_test<-active_games %>%
+ # filter(usersrated >= 250) %>% # set a minimum threshold
+  select(timestamp, game_id, name, average, baverage, usersrated) %>%
+  left_join(., games_info %>% # join game info
+              select(game_id, yearpublished, avgweight, minage, minplayers, maxplayers, playingtime),
+            by = c("game_id")) %>%
+  filter(yearpublished == 2021) %>% # use games prior to 2020 as our training set
+  left_join(., game_categories %>% # join categories
+              mutate(category = gsub("\\)", "", gsub("\\(", "", category))) %>%
+              mutate(category = tolower(paste("cat", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", category))), sep="_"))) %>%
+              mutate(has_category = 1) %>%
+              select(-category_id) %>%
+              pivot_wider(names_from = c("category"),
+                          values_from = c("has_category"),
+                          id_cols = c("game_id"),
+                          names_sep = "_",
+                          values_fn = min,
+                          values_fill = 0),
+            by = c("game_id")) %>%
+  left_join(., game_mechanics %>% # join mechanics
+              mutate(mechanic = tolower(paste("mech", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", mechanic))), sep="_"))) %>%
+              mutate(has_mechanic = 1) %>%
+              select(-mechanic_id) %>%
+              pivot_wider(names_from = c("mechanic"),
+                          values_from = c("has_mechanic"),
+                          id_cols = c("game_id"),
+                          names_sep = "_",
+                          values_fn = min,
+                          values_fill = 0),
+            by = c("game_id")) 
+
+# glmnet
+glmnet_pred<-glmnet_workflow %>%
+  finalize_workflow(parameters = glmnet_best) %>%
+  fit(games_train) %>%
+  predict(games_test)
+
+# stan
+stan_pred<-stan_lm_workflow %>%
+  fit(games_train) %>%
+  predict(games_test)
+
+# xgbTree
+xgbTree_pred<-xgbTree_workflow %>%
+  finalize_workflow(parameters = xgbTree_best) %>%
+  fit(games_train) %>%
+  predict(games_test)
+
+# 
+data.frame("glmnet" = glmnet_pred$.pred,
+           "stan_lm" = stan_pred$.pred,
+           "xgbTree" = xgbTree_pred$.pred) %>%
+  cbind.data.frame(games_test) %>%
+  arrange(desc(stan_lm)) %>%
+  mutate(yearpublished = as.character(yearpublished),
+         game_id = as.character(game_id)) %>%
+  select(yearpublished, game_id, name, baverage, stan_lm, xgbTree) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  flextable() %>%
+  autofit() %>%
+  bg(j = c('baverage', 'stan_lm', 'xgbTree'),
+  bg = col_func)
+
+# data.frame("glmnet" = glmnet_pred$.pred,
+#            "stan_lm" = stan_pred$.pred,
+#            "xgbTree" = xgbTree_pred$.pred) %>%
+#   cbind.data.frame(games_test) %>%
+#   arrange(desc(xgbTree)) %>%
+#   mutate(yearpublished = as.character(yearpublished),
+#          game_id = as.character(game_id)) %>%
+#   select(yearpublished, game_id, name, baverage, stan_lm, xgbTree) %>%
+#   mutate_if(is.numeric, round, 2) %>%
+#   flextable() %>%
+#   autofit() %>%
+#   bg(j = c('baverage', 'stan_lm', 'xgbTree'),
+#   bg = col_func)
+
+```
+
+### 2022
+
+```{r now get 2022}
+
+# set color functions
+col_func<- function(x) {
+  
+  breaks<-quantile(x, probs = seq(0, 1, by=.2), na.rm=T) %>% as.vector()
+#  breaks = weight_deciles
+  colorRamp=colorRampPalette(c("red", "white", "deepskyblue1"))
+  col_palette <- colorRamp(length(breaks))
+  mycut <- cut(x, 
+    breaks = breaks,
+    include.lowest = TRUE, 
+    right=T,
+    label = FALSE)
+  col_palette[mycut]
+  
+}
+
+# combine all
+games_test<-active_games %>%
+ # filter(usersrated >= 250) %>% # set a minimum threshold
+  select(timestamp, game_id, name, average, baverage, usersrated) %>%
+  left_join(., games_info %>% # join game info
+              select(game_id, yearpublished, avgweight, minage, minplayers, maxplayers, playingtime),
+            by = c("game_id")) %>%
+  filter(yearpublished == 2022) %>% # use games prior to 2020 as our training set
+  left_join(., game_categories %>% # join categories
+              mutate(category = gsub("\\)", "", gsub("\\(", "", category))) %>%
+              mutate(category = tolower(paste("cat", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", category))), sep="_"))) %>%
+              mutate(has_category = 1) %>%
+              select(-category_id) %>%
+              pivot_wider(names_from = c("category"),
+                          values_from = c("has_category"),
+                          id_cols = c("game_id"),
+                          names_sep = "_",
+                          values_fn = min,
+                          values_fill = 0),
+            by = c("game_id")) %>%
+  left_join(., game_mechanics %>% # join mechanics
+              mutate(mechanic = tolower(paste("mech", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", mechanic))), sep="_"))) %>%
+              mutate(has_mechanic = 1) %>%
+              select(-mechanic_id) %>%
+              pivot_wider(names_from = c("mechanic"),
+                          values_from = c("has_mechanic"),
+                          id_cols = c("game_id"),
+                          names_sep = "_",
+                          values_fn = min,
+                          values_fill = 0),
+            by = c("game_id")) 
+
+# glmnet
+glmnet_pred<-glmnet_workflow %>%
+  finalize_workflow(parameters = glmnet_best) %>%
+  fit(games_train) %>%
+  predict(games_test)
+
+# stan
+stan_pred<-stan_lm_workflow %>%
+  fit(games_train) %>%
+  predict(games_test)
+
+# xgbTree
+xgbTree_pred<-xgbTree_workflow %>%
+  finalize_workflow(parameters = xgbTree_best) %>%
+  fit(games_train) %>%
+  predict(games_test)
+
+# 
+data.frame("glmnet" = glmnet_pred$.pred,
+           "stan_lm" = stan_pred$.pred,
+           "xgbTree" = xgbTree_pred$.pred) %>%
+  cbind.data.frame(games_test) %>%
+  arrange(desc(xgbTree)) %>%
+  mutate(yearpublished = as.character(yearpublished),
+         game_id = as.character(game_id)) %>%
+  select(yearpublished, game_id, name, stan_lm, xgbTree) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  flextable() %>%
+  autofit() %>%
+  bg(j = c('stan_lm', 'xgbTree'),
+  bg = col_func)
+
+
+```
+
+### Adding Publisher and Designer Effects
+
+How do we incorporate publisher, designer, and artist effects? We can include dummy variables for all of these, but this pretty quickly blows up our number of predictors. One option we have is to do mean encoding - what is the average bgg rating for each publisher, designer, and artist?
+
+```{r test out bootstrapped mean encoding}
+
+library(rsample)
+foo<-rsample::bootstraps(games_train %>%
+            filter(yearpublished < 2020),
+            times = 25)
+
+foo %>%
+  mutate(summary = map(splits, ~ analysis(.x) %>%
+                         select(game_id, name, baverage, starts_with("pub_")) %>%
+                         melt(., id.vars = c("game_id", "name", "baverage")) %>% 
+                         filter(value == 1) %>% 
+                         group_by(variable) %>% 
+                         summarize(cat_median_boot= median(baverage)))) %>%
+  select(id, summary) %>%
+  unnest() %>%
+  group_by(variable) %>%
+  
+  
+active_games %>%
+  filter(yearpublished > 2018) %>%
+  
+  left_join(., game_designers,
+            by = "game_id") %>%
+  select(timestamp, game_id, name, designer_id, designer, everything()) %>%
+  filter(!is.na(designer)) %>%
+  #filter(designer_id %in% top_designers$designer_id) %>%
+  filter(yearpublished<2021) %>%
+
+```
+
+
+
+```{r}
+
+
+# number of publishers per game
+number_publishers<-game_publishers %>%
+        group_by(game_id) %>%
+        summarize(n_publisher = n_distinct(publisher_id)) %>%
+        left_join(., games_info %>%
+                          select(game_id, name)) %>%
+        select(game_id, name, n_publisher)
+
+# publishers that publisehd one game
+solo_publishers<-game_publishers %>%
+        group_by(game_id) %>%
+        summarize(n_publishers = n_distinct(publisher_id)) %>%
+        left_join(., game_publishers) %>%
+        filter(n_publishers == 1) %>%
+        group_by(publisher_id, publisher) %>%
+        summarize(solo_games = n_distinct(game_id)) %>%
+        arrange(desc(solo_games))
+
+
+# ratings for games publisehd solo
+game_publishers %>% 
+        left_join(., number_publishers) %>% 
+        filter(n_publisher ==1) %>%
+        left_join(., active_games %>%
+                          select(game_id, name, yearpublished, baverage)) %>%
+        filter(yearpublished < 2020) %>%
+        group_by(publisher_id, publisher) %>%
+        summarize(solo_games = n_distinct(game_id),
+                  median_rating = mean(baverage)) %>%
+        arrange(desc(median_rating)) %>% 
+
+game_publishers %>%
+        filter(publisher_id %in% solo_publishers$publisher_id) %>%
+        filter(game_id == 30549)
+
+active_games %>%
+        select(game_id, name, yearpublished) %>%
+        filter(grepl("Pandemic", name))
+
+confirmed_publishers %>%
+        
+```
+
+
+Let's now look by publisher.
+
+```{r explore ratings by category, fig.height=4}
+
+active_games %>%
+  left_join(., game_publishers,
+            by = "game_id") %>%
+  select(timestamp, game_id, name, publisher_id, publisher, everything()) %>%
+  filter(!is.na(publisher)) %>%
+  #filter(publisher_id %in% top_publishers$publisher_id) %>%
+  filter(yearpublished<2021) %>%
+  group_by(publisher_id) %>%
+  mutate(median_rating = median(baverage),
+         n_games = n_distinct(game_id)) %>%
+  ungroup() %>%
+  filter(n_games > 150) %>%
+  ggplot(., aes(x=reorder(publisher, 
+                          median_rating),
+                y=baverage))+
+  geom_point(alpha=0.25)+
+  # geom_jitter(width=0.15,
+  #             height=0,
+  #             alpha=0.25)+
+  coord_flip(ylim = c(4, 8.5))+
+  theme_phil()+
+  geom_boxplot(alpha=0.75)+
+  xlab("Game publisher")+
+  ylab("Geek Rating")+
+  ggtitle("Geek Rating by Game Publisher",
+          subtitle = str_wrap("Displaying Geek Ratings for all games published prior to 2021 for game publishers with at least 150 games", 125))+
+  labs(caption=paste("Data from boardgamegeek.com as of", max(as.Date(active_games$timestamp))))+
+  theme(plot.title = element_text(size=12),
+        plot.subtitle =  element_text(size=10),
+        axis.text.y = element_text(size=8))
+
+```
+
+If we look at just top publishers by median rating, we can see a lot of publishers that have only put out a few games.
+
+```{r top publishers table, warning=F, message=F}
+
+top_publishers<-active_games %>%
+  filter(yearpublished<2021) %>%
+  left_join(., game_publishers,
+            by = "game_id") %>%
+  select(timestamp, game_id, name, publisher_id, publisher, everything()) %>%
+  filter(!is.na(publisher)) %>%
+  group_by(publisher_id, publisher) %>%
+  summarize(games = n_distinct(game_id),
+            median_rating = median(baverage, na.rm=T),
+            sd_rating = sd(baverage, na.rm=T),
+            .groups = 'drop') %>%
+  ungroup() %>%
+  filter(games > 10) %>%
+  arrange(desc(median_rating)) %>%
+  arrange(desc(games))
+
+top_publishers %>%
+  mutate_if(is.numeric, round ,2) %>%
+    rename(`Publisher ID` = publisher_id,
+         `Publisher` = publisher,
+         `Published Games` = games,
+         `Median Rating` = median_rating,
+         `SD Rating` = sd_rating) %>%
+  arrange(desc(`Median Rating`)) %>%
+  DT::datatable()
+
+```
+  
+```{r filter to top publishers and look, fig.height=4}
+
+active_games %>%
+  left_join(., game_publishers,
+            by = "game_id") %>%
+  select(timestamp, game_id, name, publisher_id, publisher, everything()) %>%
+  filter(!is.na(publisher)) %>%
+  #filter(publisher_id %in% top_publishers$publisher_id) %>%
+  filter(yearpublished<2021) %>%
+  group_by(publisher_id) %>%
+  mutate(median_rating = median(baverage),
+         n_games = n_distinct(game_id)) %>%
+  filter(n_games > 10) %>%
+  ungroup() %>%
+  filter(publisher_id %in% 
+           (top_publishers %>% slice_max(., order_by = median_rating, n = 50) %$% publisher_id)) %>%
+  ggplot(., aes(x=reorder(publisher, 
+                          median_rating),
+                y=baverage))+
+  geom_point(alpha=0.25)+
+  # geom_jitter(width=0.15,
+  #             height=0,
+  #             alpha=0.25)+
+  coord_flip()+
+  theme_phil()+
+  geom_boxplot(alpha=0.75)+
+  xlab("Game publisher")+
+  ylab("Geek Rating")+
+  ggtitle("Geek Rating by Game Publisher",
+          subtitle = str_wrap("Displaying Geek Ratings for all games published prior to 2021 for game publishers with at least 10 games", 125))+
+  labs(caption=paste("Data from boardgamegeek.com as of", max(as.Date(active_games$timestamp))))+
+  theme(plot.title = element_text(size=12),
+        plot.subtitle =  element_text(size=10),
+        axis.text.y = element_text(size=8))
+
+```
+
+#### Game Ratings by Designer
+
+Let's now look at designers. We'll filter to only designers that have released 10 games.
+
+```{r designer ratings table}
+
+top_designers<-active_games %>%
+  filter(yearpublished<2021) %>%
+  left_join(., game_designers,
+            by = "game_id") %>%
+  select(timestamp, game_id, name, designer_id, designer, everything()) %>%
+  mutate(designer = gsub("\\)", "", gsub("\\(", "", designer))) %>%
+  filter(!is.na(designer)) %>%
+  group_by(designer_id, designer) %>%
+  summarize(games = n_distinct(game_id),
+            median_rating = median(baverage, na.rm=T),
+            sd_rating = sd(baverage, na.rm=T),
+            .groups = 'drop') %>%
+  ungroup() %>%
+  arrange(desc(median_rating)) %>%
+  filter(games > 5) %>%
+  arrange(desc(median_rating)) %>%
+  mutate_if(is.numeric, round, 3)
+
+top_designers %>%
+  rename(`Designer ID` = designer_id,
+         `Designer` = designer,
+         `Published Games` = games,
+         `Median Rating` = median_rating,
+         `SD Rating` = sd_rating) %>%
+  DT::datatable()
+
+```
+
+We can visualize each designer's distribution of games.
+
+```{r visualize designer games, fig.height=4}
+
+active_games %>%
+  left_join(., game_designers,
+            by = "game_id") %>%
+  select(timestamp, game_id, name, designer_id, designer, everything()) %>%
+  filter(!is.na(designer)) %>%
+  #filter(designer_id %in% top_designers$designer_id) %>%
+  filter(yearpublished<2021) %>%
+  group_by(designer_id) %>%
+  mutate(median_rating = median(baverage),
+         n_games = n_distinct(game_id)) %>%
+  ungroup() %>%
+  filter(n_games > 25) %>%
+  ggplot(., aes(x=reorder(designer, 
+                          median_rating),
+                y=baverage))+
+  geom_point(alpha=0.25)+
+  # geom_jitter(width=0.15,
+  #             height=0,
+  #             alpha=0.25)+
+  coord_flip(ylim = c(4, 8.5))+
+  theme_phil()+
+  geom_boxplot(alpha=0.75)+
+  xlab("Game Designer")+
+  ylab("Geek Rating")+
+  ggtitle("Geek Rating by Game Designer",
+          subtitle = str_wrap("Displaying Geek Ratings for all games published prior to 2021 for game designers with at least 25 games", 125))+
+  labs(caption=paste("Data from boardgamegeek.com as of", max(as.Date(active_games$timestamp))))+
+  theme(plot.title = element_text(size=12),
+        plot.subtitle =  element_text(size=10),
+        axis.text.y = element_text(size=6))
+
+```
+
+
+
+
+
+```{r }
+
+
+
+
+```
+
+
+
+
+## Predicting User Ratings
+
+Geek Ratings are a combination of the average user rating and the number of user ratings. Can we predict how many user ratings a game is likely to get? 
+
+For this we'll really want to use the historical dataset, which allows us to track user ratings.
+
+```{r query historical table}
+# query table
+games_ts<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT * FROM bgg.historical_game_rankings')
+
+```
+
+We'll then convert this into a tsibble.
+
+```{r convert to tsibble}
+
+repeat.before = function(x) {   # repeats the last non NA value. Keeps leading NA
+    ind = which(!is.na(x))      # get positions of nonmissing values
+    if(is.na(x[1]))             # if it begins with a missing, add the 
+          ind = c(1,ind)        # first position to the indices
+    rep(x[ind], times = diff(   # repeat the values at these indices
+       c(ind, length(x) + 1) )) # diffing the indices + length yields how often 
+} 
+
+games_tsibble<- games_ts %>%
+        filter(!are_duplicated(games_ts, index=date, key=game_id)) %>% # remove duplicates
+        filter(game_id %in% games_info$game_id) %>%  # filter to only games that we have active records on
+        as_tsibble(index = date,
+                   key = game_id) %>%
+        tsibble::fill_gaps(., .full=FALSE) %>%
+        mutate_at(c("game_release_year", 
+                    "bgg_rank",
+                    "bgg_average",
+                    "bayes_average",
+                    "users_rated"),
+                 repeat.before) 
+
+```
+
+This dataset lets us track how a game's user ratings, geek rating, and average rating has changed over time.
+
+```{r look at samples of games}
+
+samp_ids=c(521,
+        268864,
+        167355,
+        199478)
+
+# plot
+samp_plots<-foreach(i = 1:length(samp_ids)) %do% {
+  
+  samp_id = samp_ids[i]
+  
+    # plot
+  games_tsibble %>% 
+          filter(game_id == samp_id) %>% 
+          rename(`Users Rated` = users_rated,
+                 `BGG Average Rating` = bgg_average,
+                 `BGG Geek Rating` = bayes_average,
+                 `BGG Rank` = bgg_rank) %>%
+          autoplot(vars(`Users Rated`,
+                        `BGG Average Rating`,
+                        `BGG Geek Rating`))+
+       #   theme_minimal()+
+    scale_x_date(labels = date_format("%Y"))+
+    xlab("")+
+    theme_minimal()+
+    ggtitle(paste("Game Title:", games_info %>%
+    filter(game_id == samp_id) %>%
+    pull(name),
+    sep = " "))
+  
+}
+
+samp_plots[1]
+samp_plots[2]
+
+```
+Our goal is to forecast the number of user ratings a game will get after it enters the BGG database. We're really just trying to figure out whether a game will be popular or not. We could treat this as a classification problem and create a binary outcome at a set threshold such as >1000 user ratings within one year of release. We could then just try to model the probability that a game will catch on.
+
+Alternatively, we can treat this is a regression problem and try to directly model the number of user ratings a game will get. We could then simulate from the model to directly to identify the number of times a game passed certain thresholds.
+
+Either way, we need to define some sort of end point. Given the amount of data we have, the most reasonable starting point that I can see is to try to predict how many user ratings a game will have one year after it enters the BGG database. This is imperfect for a lot of reasons, but one big issue in particular is the timing of board game releases, especially during the pandemic. Games might start showing up on BGG but due to shipping issues we won't see enough user copies reach the hands of users within a year.
+
+Nemesis, for instance, took awhile to gather momentum on BGG.
+
+```{r show a plot of nemesis}
+
+samp_plots[3]
+
+```
+
+We'll probably want to additionally predict a two year window to see how it differs due to this.
+
+### Games Released
+
+```{r dataset of games released}
+
+# get games that started
+games_started<-games_tsibble %>% 
+  ungroup() %>%
+  mutate(minimum_date = min(date)) %>%
+  group_by(game_id) %>%
+  mutate(start_date = min(date)) %>%
+  ungroup() %>%
+  filter(start_date > minimum_date) %>%
+  filter(date == start_date) %>%
+  left_join(., games_info %>%
+                    select(game_id, yearpublished),
+            by = c("game_id")) %>%
+  select(game_id, start_date, yearpublished) %>%
+  filter(yearpublished > 2015)
+
+# number of games released per year
+games_started %>%
+  as.data.frame() %>%
+  group_by(yearpublished) %>%
+  summarize(games_released = n_distinct(game_id))
+
+# let's look at the games that started and were released during this time period
+games_info %>% 
+        filter(game_id %in% (games_started %>%
+                       filter(yearpublished > 2015) %>%
+                       pull(game_id))) %>%
+        left_join(., games_started,
+                  by= c("game_id", "yearpublished")) %>%
+        select(game_id, name, start_date, yearpublished) %>%
+        arrange(yearpublished) %>%
+        mutate_if(is.numeric, as.character) %>%
+        rename(`Game ID` = game_id,
+               Name = name,
+               `Year Published` = yearpublished,
+               `Start Date` = start_date) %>%
+        DT::datatable(class = 'cell-border stripe')
+
+
+set.seed(1999)
+games_tsibble %>%
+        filter(game_id %in% games_started$game_id) %>%
+        ungroup() %>%
+        mutate(minimum_date = min(date)) %>%
+        ungroup() %>%
+        group_by(game_id) %>%
+        mutate(start_date = min(date)) %>%
+        ungroup() %>%
+        mutate(days_since_start = date-start_date) %>%
+        ungroup() %>%
+        filter(game_id %in% (games_started %>%
+                                     filter(yearpublished > 2015) %>%
+                                     sample_n(500) %>% pull(game_id))) %>%
+        as_tsibble(index = days_since_start, key = game_id) %>%
+        rename(`Users Rated` = users_rated,
+               `BGG Average Rating` = bgg_average,
+               `BGG Geek Rating` = bayes_average,
+               `BGG Rank` = bgg_rank) %>%
+        filter(days_since_start <= 720) %>%
+  autoplot(`Users Rated`)
+  
+        melt(., id.vars = c("date", "game_id", "game_release_year", "minimum_date", "start_date", "days_since_start")) %>%
+        ggplot(., aes(x=days_since_start,
+                      y=value))+
+        geom_line(aes(group = game_id),
+                  alpha = 0.5,
+                  lwd = .5)+
+        facet_wrap(variable~., scales="free_y")+
+        geom_smooth()+
+        theme_phil()+
+        xlab("Days Since Game Hit 30 User Ratings \n Games Published After 2015")+
+        labs(caption = str_wrap("Displaying a sample of 500 games that first hit 30 user ratings after 2016-10-12 and were published after 2015", 125))
+
+
+```
+
+
+```{r }
+
+recipe_base<- recipe(baverage~., x = games_train) %>%
+  update_role(timestamp,
+              usersrated,
+              game_id,
+              name,
+              average,
+              new_role = "id") %>%
+  #step_filter(usersrated >=100) %>%
+  step_filter(!is.na(yearpublished)) %>%
+  step_filter(
+      cat_collectible_components !=1 &
+      cat_expansion_for_basegame != 1) %>% # remove specific categories that count expansions
+  step_mutate(yearpublished = case_when(yearpublished <= 1950 ~ 1950,
+                                         TRUE ~ as.numeric(yearpublished))) %>% # truncate yearpublished
+  step_impute_median(avgweight,
+                    minplayers,
+                    maxplayers,
+                    playingtime,
+                    minage) %>% # medianimpute numeric predictors
+  step_mutate(minplayers = case_when(minplayers < 1 ~ 1,
+                                     minplayers > 10 ~ 10,
+                                     TRUE ~ minplayers),
+              maxplayers = case_when(maxplayers < 1 ~ minplayers,
+                                     maxplayers > 20 ~ 20,
+                                     TRUE ~ maxplayers)) %>% # truncate player range
+  step_mutate(time_per_player = playingtime/ maxplayers) %>% # make time per player variable
+  step_mutate_at(starts_with("cat_"),
+                 fn = ~ replace_na(., 0)) %>%
+  step_mutate_at(starts_with("mech_"),
+                 fn = ~ replace_na(., 0)) %>%
+  step_mutate(number_mechanics = rowSums(across(starts_with("mech_"))),
+              number_categories = rowSums(across(starts_with("cat_")))) %>%
+  step_log(playingtime,
+           time_per_player,
+           offset = 1) %>%
+  step_zv(all_predictors()) %>%
+  step_nzv(all_predictors(),
+           freq_cut = 99/1) %>%
+  check_missing(all_numeric_predictors())
+
+
+# normalize
+recipe_norm<-recipe_base %>%
+  step_normalize(all_predictors())
+
+# summary of recipe
+summary(recipe_base)
+
+
+
+```
+
