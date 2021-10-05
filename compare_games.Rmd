@@ -963,7 +963,6 @@ write this out
 
 ```{r examine}
 
-
 new_recommend %>%
   arrange(dataset, rec_rank) %>%
   filter(name == 'Unfathomable')
@@ -971,12 +970,9 @@ new_recommend %>%
 ```
 
 
-```{r}
+```{r write out}
 
 fwrite(paste("game_recommendations_data/", Sys.Date(), ".csv", sep=""))
-
-
->>>>>>> b30e92b223c43b6643c152f31cdc10c431315dff
 
 ```
 
