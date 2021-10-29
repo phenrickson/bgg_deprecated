@@ -26,6 +26,21 @@ options(scipen=999)
 
 source("load_packages.R")
 source("theme_phil.R")
+library(webshot2)
+
+```
+
+```{r flextable settings}
+
+library(magick)
+library(flextable)
+set_flextable_defaults(theme_fun = theme_booktabs,
+                       font.color = "grey10",
+  padding.bottom = 6, 
+  padding.top = 6,
+  padding.left = 6,
+  padding.right = 6,
+  background.color = "white")
 
 ```
 
@@ -3687,7 +3702,6 @@ pred_record = all_models %>%
   left_join(., baked_record %>%
               mutate(.row = row_number()),
             by = ".row") 
-  
 
 # now look at the prediction
 pred_record %>%
@@ -3708,9 +3722,9 @@ pred_record %>%
     select(Method, Published, ID, Game, User, `Pr(Own)`, `Pr(Play)`) %>%
       mutate_if(is.numeric, round, 2) %>%
     flextable() %>%
-    flextable::autofit() %>%
     bg(., j = c("`Pr(Own)`", "`Pr(Play)`"),
        bg = col_func)
+
 
 ```
 
@@ -3932,10 +3946,10 @@ pred_record %>%
 ```{r save outputs}
 
 # save training preds
-save(oos_preds, file = paste("reviewer_predictions_data/oos_preds_", Sys.Date(), ".Rds", sep=""))
+save(oos_preds, file = paste("reviewer_predictions_data/oos_preds_", Sys.Date(), ".csv", sep=""))
 
 # save test preds
-save(test_probs, file = paste("reviewer_predictions_data/test_preds_", Sys.Date(), ".Rds", sep=""))
+save(test_probs, file = paste("reviewer_predictions_data/test_preds_", Sys.Date(), ".csv", sep=""))
 
 ```
 
