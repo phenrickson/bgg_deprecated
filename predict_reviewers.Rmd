@@ -1,12 +1,5 @@
 ---
-title: "predict_individuals"
-author: "Phil Henrickson"
-date: "10/4/2021"
-output: html_document
----
-
----
-title: "Predicting BGG Ratings"
+title: "Predicting Reviewer Ratings and Collections"
 author: Phil Henrickson
 date: "`r Sys.Date()`"
 output: 
@@ -1869,7 +1862,7 @@ p +
 
 Rahdo
 
-```{r place reviewers rahdo, message=F, fig.height=8, eval = F}
+```{r place reviewers rahdo, message=F, fig.height=8}
 
 # rahdo
 set.seed(1999)
@@ -1899,7 +1892,7 @@ p +
 
 Mark Bigney
 
-```{r place reviewers mark bigney, message=F, fig.height=8, eval = F}
+```{r place reviewers mark bigney, message=F, fig.height=8}
 
 # Gyges
 set.seed(1999)
@@ -1929,7 +1922,7 @@ p +
 
 ZeeGaria
 
-```{r place reviewers watch it played, message=F, fig.height=8, eval = F}
+```{r place reviewers watch it played, message=F, fig.height=8}
 
 # ZeeGarcia
 set.seed(1999)
@@ -2670,7 +2663,7 @@ We can extract the predictions from resampling for the penalized models and the 
 ```{r spread out and create flextable from own model}
 
 # spread out by outcome
-training_preds_glmnet = all_models %>%
+oos_preds = training_preds_glmnet = all_models %>%
   mutate(glmnet_results = map(glmnet_results, ~ .x %>%
                                 mutate(outcome = as.character(outcome)) %>%
                                 rename(outcome_char = outcome) %>%
@@ -2722,7 +2715,7 @@ training_preds_glmnet = all_models %>%
 
 Examine side by side for reviewers
 
-```{r side by side for reviewers}
+```{r side by side for reviewers, warning=F, message=F}
 
 col_func<- function(x) {
   
@@ -3226,7 +3219,7 @@ test_probs_with_actual %>%
               #  "NoPunInc",
                 "Quinns", "rahdo", "TomVas", "WtchItPly", "ZeeGarc"),
        bg = col_func) %>%
-      set_caption(paste("Highest Pr(", paste("own"), ") by Reviewer for Games Published in 2020"))
+          set_caption(paste("Highest Pr(Own) for Games Published in 2020"))
 
 
 ```
@@ -3257,7 +3250,7 @@ test_probs_with_actual %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
      bg = 'deepskyblue1') %>%
-        set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
+          set_caption(paste("Highest Pr(Own) for Games Published in 2020"))
 
 
 # quinns
@@ -3282,7 +3275,7 @@ test_probs_with_actual %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
      bg = 'deepskyblue1') %>%
-      set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
+          set_caption(paste("Highest Pr(Own) for Games Published in 2020"))
 
 
 # TomVasel
@@ -3307,7 +3300,7 @@ test_probs_with_actual %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
      bg = 'deepskyblue1') %>%
-          set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
+          set_caption(paste("Highest Pr(Own) for Games Published in 2020"))
 
 
 # Gyges
@@ -3332,7 +3325,7 @@ test_probs_with_actual %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
      bg = 'deepskyblue1') %>%
-          set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
+          set_caption(paste("Highest Pr(Own) for Games Published in 2020"))
 
 
 # mrbananagrabber
@@ -3357,7 +3350,7 @@ test_probs_with_actual %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
      bg = 'deepskyblue1') %>%
-          set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
+          set_caption(paste("Highest Pr(Own) for Games Published in 2020"))
 
   
 # Watch_It_Played
@@ -3377,13 +3370,12 @@ test_probs_with_actual %>%
   ungroup() %>%
   mutate(rank = row_number()) %>%
   select(everything(), rank) %>%
+  head(50) %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
      bg = 'deepskyblue1') %>%
-          set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
-
-  
+          set_caption(paste("Highest Pr(Own) for Games Published in 2020"))
 
 ```
 
@@ -3429,7 +3421,7 @@ test_probs_with_actual %>%
               #  "NoPunInc",
                 "Quinns", "rahdo", "TomVas", "WtchItPly", "ZeeGarc"),
        bg = col_func) %>%
-        set_caption(paste("Highest Pr(", paste("own"), ") by Reviewer for Games Published in 2021"))
+        set_caption(paste("Highest Pr(Own) by Reviewer for Games Published in 2021"))
 
 
 ```
@@ -3643,7 +3635,7 @@ test_probs_with_actual %>%
               #  "NoPunInc",
                 "Quinns", "rahdo", "TomVas", "WtchItPly", "ZeeGarc"),
        bg = col_func) %>%
-      set_caption(paste("Highest Pr(", paste("own"), ") by Reviewer for Games Published in 2022"))
+      set_caption(paste("Highest Pr(Own) by Reviewer for Games Published in 2022"))
 
 ```
 
@@ -3651,7 +3643,7 @@ test_probs_with_actual %>%
 
 Weather Machine
 
-```{r predict specified games 1}
+```{r weather machine, warning=F, message=F}
 
 source("functions/get_game_record.R")
 
@@ -3699,33 +3691,32 @@ pred_record = all_models %>%
 
 # now look at the prediction
 pred_record %>%
-  filter(outcome_type == 'own') %>%
-  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type, glmnet) %>%
+  filter(outcome_type == 'own' | outcome_type == 'have_played') %>%
+  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type) %>%
   mutate(method = "glmnet") %>%
+  spread(outcome_type, glmnet) %>%
   mutate(game_id = as.character(game_id),
          yearpublished = as.character(yearpublished)) %>%
-  rename(Outcome = outcome_type,
-           Method = method,
-           Published = yearpublished,
-           ID = game_id,
-           Game = name,
+  rename(Method = method,
+         Published = yearpublished,
+         ID = game_id,
+         Game = name,
          User = username) %>%
-  rename(Prob = glmnet) %>%
-  arrange(desc(Prob)) %>%
-    select(Method, Outcome, ID, Published, Game, User, Prob) %>%
+  rename(`Pr(Own)` = own,
+         `Pr(Play)` = have_played) %>%
+  arrange(desc(`Pr(Own)`)) %>%
+    select(Method, Published, ID, Game, User, `Pr(Own)`, `Pr(Play)`) %>%
       mutate_if(is.numeric, round, 2) %>%
     flextable() %>%
     flextable::autofit() %>%
-    bg(., j = c("Prob"),
+    bg(., j = c("`Pr(Own)`", "`Pr(Play)`"),
        bg = col_func)
 
 ```
 
 Lords of Ragnarok
 
-```{r predict specifid games 2}
-
-source("functions/get_game_record.R")
+```{r lords of ragnarak, warning=F, message=F}
 
 # load
 id =340865
@@ -3771,33 +3762,32 @@ pred_record = all_models %>%
 
 # now look at the prediction
 pred_record %>%
-  filter(outcome_type == 'own') %>%
-  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type, glmnet) %>%
+  filter(outcome_type == 'own' | outcome_type == 'have_played') %>%
+  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type) %>%
   mutate(method = "glmnet") %>%
+  spread(outcome_type, glmnet) %>%
   mutate(game_id = as.character(game_id),
          yearpublished = as.character(yearpublished)) %>%
-  rename(Outcome = outcome_type,
-           Method = method,
-           Published = yearpublished,
-           ID = game_id,
-           Game = name,
+  rename(Method = method,
+         Published = yearpublished,
+         ID = game_id,
+         Game = name,
          User = username) %>%
-  rename(Prob = glmnet) %>%
-  arrange(desc(Prob)) %>%
-    select(Method, Outcome, ID, Published, Game, User, Prob) %>%
+  rename(`Pr(Own)` = own,
+         `Pr(Play)` = have_played) %>%
+  arrange(desc(`Pr(Own)`)) %>%
+    select(Method, Published, ID, Game, User, `Pr(Own)`, `Pr(Play)`) %>%
       mutate_if(is.numeric, round, 2) %>%
     flextable() %>%
     flextable::autofit() %>%
-    bg(., j = c("Prob"),
+    bg(., j = c("`Pr(Own)`", "`Pr(Play)`"),
        bg = col_func)
 
 ```
 
 Ark Nova
 
-```{r predict specifid games 3}
-
-source("functions/get_game_record.R")
+```{r ark nova, warning=F, message=F}
 
 # load
 id =342942
@@ -3843,25 +3833,113 @@ pred_record = all_models %>%
 
 # now look at the prediction
 pred_record %>%
-  filter(outcome_type == 'own') %>%
-  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type, glmnet) %>%
+  filter(outcome_type == 'own' | outcome_type == 'have_played') %>%
+  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type) %>%
   mutate(method = "glmnet") %>%
+  spread(outcome_type, glmnet) %>%
   mutate(game_id = as.character(game_id),
          yearpublished = as.character(yearpublished)) %>%
-  rename(Outcome = outcome_type,
-           Method = method,
-           Published = yearpublished,
-           ID = game_id,
-           Game = name,
+  rename(Method = method,
+         Published = yearpublished,
+         ID = game_id,
+         Game = name,
          User = username) %>%
-  rename(Prob = glmnet) %>%
-  arrange(desc(Prob)) %>%
-    select(Method, Outcome, ID, Published, Game, User, Prob) %>%
+  rename(`Pr(Own)` = own,
+         `Pr(Play)` = have_played) %>%
+  arrange(desc(`Pr(Own)`)) %>%
+    select(Method, Published, ID, Game, User, `Pr(Own)`, `Pr(Play)`) %>%
       mutate_if(is.numeric, round, 2) %>%
     flextable() %>%
     flextable::autofit() %>%
-    bg(., j = c("Prob"),
+    bg(., j = c("`Pr(Own)`", "`Pr(Play)`"),
        bg = col_func)
+
+```
+
+Imperial Steam
+
+```{r imperial steam, warning=F}
+id = 338760
+
+# get the game
+raw_record = get_game_record(id)
+
+# attach all names from training
+record = bind_rows(raw_record,
+                   games_train[0,])
+
+# bake using previously trained recipe
+baked_record = recipe_model %>%
+  prep(games_train, strings_as_factor = F) %>%
+  bake(record)
+         
+
+# predict
+pred_record = all_models %>%
+  filter(outcome_type != 'rating') %>%
+  select(username, outcome_type, glmnet_fit) %>%
+  #select(username, outcome_type, glmnet_fit, xgbTree_fit) %>%
+  mutate(glmnet_preds = map(glmnet_fit,
+                            ~ .x %>%
+                              predict(baked_record, type = 'prob') %>%
+                              rename(glmnet = .pred_1) %>%
+                              select(glmnet) %>%
+                              mutate(.row = row_number()))) %>%
+  # mutate(xgbTree_preds = map(xgbTree_fit,
+  #                            ~ .x %>%
+  #                              predict(baked_test, type = 'prob') %>%
+  #                              rename(xgbTree = .pred_1) %>%
+  #                              select(xgbTree) %>%
+  #                              mutate(.row = row_number()))) %>%
+  select(username, outcome_type, glmnet_preds) %>%
+ # select(username, outcome_type, glmnet_preds, xgbTree_preds) %>%
+  unnest() %>%
+  select(-one_of(".row1")) %>%
+  left_join(., baked_record %>%
+              mutate(.row = row_number()),
+            by = ".row") 
+  
+
+# now look at the prediction
+pred_record %>%
+  filter(outcome_type == 'own' | outcome_type == 'have_played') %>%
+  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type) %>%
+  mutate(method = "glmnet") %>%
+  spread(outcome_type, glmnet) %>%
+  mutate(game_id = as.character(game_id),
+         yearpublished = as.character(yearpublished)) %>%
+  rename(Method = method,
+         Published = yearpublished,
+         ID = game_id,
+         Game = name,
+         User = username) %>%
+  rename(`Pr(Own)` = own,
+         `Pr(Play)` = have_played) %>%
+  arrange(desc(`Pr(Own)`)) %>%
+    select(Method, Published, ID, Game, User, `Pr(Own)`, `Pr(Play)`) %>%
+      mutate_if(is.numeric, round, 2) %>%
+    flextable() %>%
+    flextable::autofit() %>%
+    bg(., j = c("`Pr(Own)`", "`Pr(Play)`"),
+       bg = col_func)
+
+
+```
+
+
+## Save
+
+```{r save outputs}
+
+# save training preds
+save(oos_preds, file = paste("reviewer_predictions_data/oos_preds_", Sys.Date(), ".Rds", sep=""))
+
+# save test preds
+save(test_probs, file = paste("reviewer_predictions_data/test_preds_", Sys.Date(), ".Rds", sep=""))
+
+```
+
+
 
 ```
 
