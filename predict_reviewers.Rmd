@@ -62,6 +62,10 @@ bigquerycon<-dbConnect(
 active_games<-DBI::dbGetQuery(bigquerycon, 
                               'SELECT * FROM bgg.active_games_daily')
 
+
+my_caption = list(labs(caption = paste(paste("Data from boardgamegeek.com as of", max(as.Date(active_games$timestamp))),
+                        paste("Data and analysis at github.com/phenrickson/bgg"), sep="\n")))
+
 ```
 
 ### Additional Game Information
@@ -123,7 +127,6 @@ game_artists<-DBI::dbGetQuery(bigquerycon,
                               FROM bgg.game_artists a
                                LEFT JOIN bgg.artist_ids b 
                                ON a.artist_id = b.artist_id')
-
 
 ```
 
@@ -192,7 +195,6 @@ collection_info <- game_collections %>%
 # confirm no duplicates
 table(duplicated(collection_info))
 
-
 ```
 
 We can look at these collections.
@@ -212,10 +214,7 @@ collection_info %>%
   theme_phil()+
   ylab("bgg_username")+
   xlab("Number of Games in Collection")+
-    labs(caption = paste('Data from boardgamegeek.com as of', max(collection_info$date), 
-                          '\n',
-                          'Analysis and code from github.com/phenrickson/bgg'))+
-  theme(plot.caption = element_text(size=8))
+  my_caption
 
 ```
 
@@ -249,10 +248,8 @@ collection_info %>%
   xlab("User Game Rating")+
   scale_fill_colorblind()+
   guides(fill = "none")+
-    labs(caption = paste('Data from boardgamegeek.com as of', max(collection_info$date), 
-                          '\n',
-                          'Analysis and code from github.com/phenrickson/bgg'))+
-  theme(plot.caption = element_text(size=8))
+  my_caption
+
 
 # ratings
 collection_info %>%
@@ -280,10 +277,7 @@ collection_info %>%
   xlab("User Game Rating")+
   scale_color_colorblind()+
   guides(color = "none")+
-    labs(caption = paste('Data from boardgamegeek.com as of', max(collection_info$date), 
-                          '\n',
-                          'Analysis and code from github.com/phenrickson/bgg'))+
-  theme(plot.caption = element_text(size=8))
+  my_caption
 
 
 ```
@@ -296,16 +290,19 @@ collection_info %>%
   filter(yearpublished > 2010 & yearpublished < 2022) %>%
   group_by(yearpublished, username) %>%
   summarize(n_owned = sum(own),
-            n_rated = n_distinct(game_id)) %>%
+            n_rated = n_distinct(game_id),
+            .groups = 'drop') %>%
   melt(., id.vars = c("yearpublished", "username")) %>%
   ggplot(., aes(x=yearpublished, y=value, color = variable, by = username))+
   geom_line()+
   facet_wrap(username~.,
              scales="free_y")+
   theme_phil()+
-  scale_color_colorblind()
+  scale_color_colorblind()+
+  my_caption
 
 ```
+
 Alright so it would seem that NoPunIncluded stoppped updating their BGG account after 2015, and that TomVasel has continued to rate games but he no logner lists that he owns them. Bleah.
 
 So, that means we can probably toss out NoPunIncluded and not be missing too much, but for TomVasel we might need to create a whole new category. Let's look at the games he's rated by whether he owns them, filtering to games published before 2017.
@@ -327,8 +324,8 @@ collection_info %>%
                       quantile_lines=TRUE, quantiles=2)+
   facet_wrap(username~.)+
   theme_phil()+
-  scale_fill_manual(values = c("grey60", "navy"))
-
+  scale_fill_manual(values = c("grey60", "navy"))+
+  my_caption
 
 ```
 So the median rating for games he owns is 8, as opposed to 6 for games he doesn't. If we make the assumption that he owns above an 8 for games published in 2018 and 2019, what do games would we consider him owning.
@@ -345,8 +342,6 @@ collection_info %>%
   filter(rating >= 8) %>%
   left_join(., games_info) %>%
   select(username, yearpublished, game_id, name, rating, own)
-
-
 
 ```
 
@@ -401,10 +396,7 @@ collection_info %>%
   theme_phil()+
   scale_fill_colorblind()+
   guides(fill = "none")+
-  labs(caption = paste('Data from boardgamegeek.com as of', max(collection_info$date), 
-                          '\n',
-                          'Analysis and code from github.com/phenrickson/bgg'))+
-  theme(plot.caption = element_text(size=8))
+  my_caption
 
 ```
 
@@ -443,7 +435,7 @@ Games owned by yearpublished
 collection_info %>%
       mutate(own = case_when(username == 'TomVasel' & rating >= 8 ~ 1,
                          TRUE ~ own)) %>%
-  filter(username != 'mrbananagrabber') %>%
+ # filter(username != 'mrbananagrabber') %>%
   filter(!is.na(yearpublished)) %>%
   filter(!is.na(name)) %>%
   filter(own == 1) %>%
@@ -465,11 +457,7 @@ collection_info %>%
   theme_phil()+
   scale_fill_colorblind()+
   guides(fill = "none")+
-      labs(caption = paste('Data from boardgamegeek.com as of', max(collection_info$date), 
-                          '\n',
-                          'Analysis and code from github.com/phenrickson/bgg'))+
-  theme(plot.caption = element_text(size=8))
-
+  my_caption
 
 ```
 
@@ -506,7 +494,7 @@ collection_info %>%
   left_join(., active_games %>%
               select(game_id, baverage, average),
             by = "game_id") %>%
-  filter(username != 'mrbananagrabber') %>%
+#  filter(username != 'mrbananagrabber') %>%
   filter(!is.na(yearpublished)) %>%
   filter(!is.na(name)) %>%
   filter(yearpublished < 2020) %>%
@@ -529,11 +517,7 @@ collection_info %>%
   scale_fill_colorblind()+
   guides(fill = "none")+
   xlab("Geek Rating")+
-      labs(caption = paste('Data from boardgamegeek.com as of', max(collection_info$date),
-                          '\n',
-                          'Analysis and code from github.com/phenrickson/bgg'))+
-  theme(plot.caption = element_text(size=8))
-
+  my_caption
 # # geek rating
 # collection_info %>%
 #   left_join(., active_games %>%
@@ -597,7 +581,7 @@ collection_info %>%
     filter(yearpublished < 2020) %>%
       mutate(own = case_when(username == 'TomVasel' & rating >= 8 ~ 1,
                          TRUE ~ own)) %>%
-  filter(username != 'mrbananagrabber') %>%
+ # filter(username != 'mrbananagrabber') %>%
   filter(!is.na(rating)) %>%
   group_by(username) %>%
   mutate(median_rating = median(rating)) %>%
@@ -620,10 +604,7 @@ collection_info %>%
               formula = 'y ~ x')+
   xlab("Game Complexity")+
   ylab("User Rating")+
-    labs(caption = paste('Data from boardgamegeek.com as of', max(collection_info$date), 
-                          '\n',
-                          'Analysis and code from github.com/phenrickson/bgg'))+
-  theme(plot.caption = element_text(size=8))
+  my_caption
         
 ```
 
@@ -664,7 +645,7 @@ How does each user compare to the geek rating?
 # baverage
 collection_info %>%
   filter(yearpublished < 2020) %>%
-  filter(username != 'mrbananagrabber') %>%
+#  filter(username != 'mrbananagrabber') %>%
   left_join(., active_games %>%
               select(game_id, baverage, average),
             by = "game_id") %>%
@@ -691,16 +672,13 @@ collection_info %>%
                   ylim = c(1, 10.1))+
   xlab("Geek Rating")+
   ylab("User Rating")+
-    labs(caption = paste('Data from boardgamegeek.com as of', max(collection_info$date), 
-                          '\n',
-                          'Analysis and code from github.com/phenrickson/bgg'))+
-  theme(plot.caption = element_text(size=8))
+  my_caption
 
 
 # bgg average
 collection_info %>%
   filter(yearpublished < 2020) %>%
-  filter(username != 'mrbananagrabber') %>%
+#  filter(username != 'mrbananagrabber') %>%
   left_join(., active_games %>%
               select(game_id, baverage, average),
             by = "game_id") %>%
@@ -727,10 +705,7 @@ collection_info %>%
                   ylim = c(1, 10.1))+
   xlab("BGG Average")+
   ylab("User Rating")+
-    labs(caption = paste('Data from boardgamegeek.com as of', max(collection_info$date), 
-                          '\n',
-                          'Analysis and code from github.com/phenrickson/bgg'))+
-  theme(plot.caption = element_text(size=8))
+  my_caption
 
 ```
 
@@ -1043,7 +1018,7 @@ collection_info %>%
 
   
 collection_info %>%
-    filter(username != 'mrbananagrabber') %>%
+  #  filter(username != 'mrbananagrabber') %>%
   filter(!is.na(rating)) %>%
   select(date, username, game_id, name, rating) %>%
   pivot_wider(names_from = 'username',
@@ -1053,13 +1028,15 @@ collection_info %>%
   ggpairs(., lower = list(continuous = wrap("smooth", size = 0.75, alpha = 0.3),
                           combo = wrap("dot_no_facet", alpha = 0.4)))+
   theme_minimal()+
-  theme(panel.grid.major = element_blank())
+  theme(panel.grid.major = element_blank())+
+  my_caption
+
 
 ```
 
-We can zoom in on a few of those comparisons in particular.
+We can zoom in on a few of those comparisons in particular. How do Quinns and Tom Vasel compare? Looks like they really agree about Cosmic Encounter, El Grande, Memoir 44, and RoboRally. They disagree heavily on Twister, Food Chain Magnate, and Container.
 
-```{r compare reviers, warning=F, message=F}
+```{r compare reviwers quinns vs tom vasel, warning=F, message=F}
 
 # quinns vs tom vasel
 collection_info %>%
@@ -1083,7 +1060,14 @@ collection_info %>%
   stat_cor(p.accuracy = 0.01,
            col = 'blue')+
   xlab("Quinns' Ratings")+
-  ylab("TomVasel's Ratings")
+  ylab("TomVasel's Ratings")+
+  my_caption
+
+```
+
+What about Quinns vs Mark Bigney? I remember listening to a podcast where they disagreed heavily about Quacks of Quedlinburg.
+
+```{r compare reviwers quinns vs mark bigney, warning=F, message=F}
 
 # quinns vs mark bigney
 collection_info %>%
@@ -1107,7 +1091,14 @@ collection_info %>%
   stat_cor(p.accuracy = 0.01,
            col = 'blue')+
   xlab("Quinns' Ratings")+
-  ylab("Gyges' Ratings")
+  ylab("Gyges' Ratings")+
+  my_caption
+
+```
+
+Tom Vasel and Mark Bigney?
+
+```{r compare reviewers mark bigney and tom vasel, warning=F, message=F}
 
 # tom vasel vs mark bigney
 collection_info %>%
@@ -1131,8 +1122,14 @@ collection_info %>%
   stat_cor(p.accuracy = 0.01,
            col = 'blue')+
   xlab("TomVasel's Ratings")+
-  ylab("Gyges' Ratings")
+  ylab("Gyges' Ratings")+
+  my_caption
 
+```
+
+Tom Vasel and Zee
+
+```{r compare reviewers zee and tom vasel, warning=F, message=F}
 
 # tom vasel vs zee
 collection_info %>%
@@ -1156,8 +1153,8 @@ collection_info %>%
   stat_cor(p.accuracy = 0.01,
            col = 'blue')+
   xlab("TomVasel's Ratings")+
-  ylab("ZeeGarcia's Ratings")
-
+  ylab("ZeeGarcia's Ratings")+
+  my_caption
 
 ```
 
@@ -1169,7 +1166,7 @@ col_num_func<- function(x) {
   
   breaks<-seq(1, 8, by = 1)
 #  breaks = weight_deciles
-  colorRamp=colorRampPalette(c("white", "blue3"))
+  colorRamp=colorRampPalette(c("white", "royalblue"))
   col_palette <- colorRamp(length(breaks))
   mycut <- cut(x, 
     breaks = breaks,
@@ -1210,6 +1207,7 @@ collection_pivot %>%
          Name = name,
          Total  = num_own) %>%
   filter(Total > 1) %>%
+  head(50) %>%
   flextable() %>%
   flextable::autofit() %>%
   flextable::align(., j = c("Published", "Game_ID", "Name"), align = "left", part = "body") %>%
@@ -1218,13 +1216,15 @@ collection_pivot %>%
   bg(., j = "Total",
      bg = col_num_func) %>%
     color(., j = c("Quinns", "TomVasel", "ZeeGarcia", "rahdo", "Watch_It_Played", "NoPunIncluded", "Gyges"),
-     color = "blue3") 
+     color = "blue3") %>%
+    set_caption("Collection Overlap Between Prominent Reviewers")
+
   
 ```
 
 Which collections overlap the most?
 
-```{r upset plot, fig.height=10}
+```{r upset plot, fig.height=8, fig.width=10}
 
 collection_pivot %>%
   select(-yearpublished, -game_id, -name) %>%
@@ -1262,7 +1262,7 @@ collection_pivot %>%
 
 What about by rating?
 
-```{r rating variance, warning=F, message=F}
+```{r rating mean and variance, warning=F, message=F}
 
 # mean
 collection_info %>%
@@ -1297,15 +1297,18 @@ collection_info %>%
          SD = sd, 
          Published = yearpublished) %>%
   select(-Owned) %>%
+  head(50) %>%
   flextable() %>%
   flextable::autofit() %>% 
   bg(., j = 'Mean',
      bg = col_func) %>%
   flextable::align(., j = c("Mean", "SD", "Quinns", "TomVasel", "ZeeGarcia", "rahdo", "Gyges"), align = "center", part = "body") %>%
     bg(., j = c("Quinns", "TomVasel", "ZeeGarcia", "rahdo", "Gyges"),
-     bg = col_func)
+     bg = col_func) %>%
+      set_caption("Highest Rated Games for Selected Reviewers")
 
-# variance
+
+# mean
 collection_info %>%
   filter(!is.na(yearpublished)) %>%
   filter(!is.na(name)) %>%
@@ -1338,19 +1341,21 @@ collection_info %>%
          SD = sd, 
          Published = yearpublished) %>%
   select(-Owned) %>%
+  head(50) %>%
   flextable() %>%
   flextable::autofit() %>% 
   bg(., j = 'Mean',
      bg = col_func) %>%
   flextable::align(., j = c("Mean", "SD", "Quinns", "TomVasel", "ZeeGarcia", "rahdo", "Gyges"), align = "center", part = "body") %>%
     bg(., j = c("Quinns", "TomVasel", "ZeeGarcia", "rahdo", "Gyges"),
-     bg = col_func)
+     bg = col_func) %>%
+      set_caption("Highest Variance Games for Selected Reviewers")
 
 ```
 
-## Modeling
+## Analysis
 
-### Create Game Dataset
+### Create Training Set
 
 ```{r whiteflag publishers}
 
@@ -1474,7 +1479,7 @@ games_train<-active_games %>%
 ```
 
 
-### Recipes
+### PCA
 
 We'll create a recipe for an initial PCA first. Then we'll create a recipe for our baseline model, which only uses observable game info such as playing time, player counts, complexity (more on this later), and categories + mechanics.
 
@@ -1581,136 +1586,22 @@ pca_data %>%
             position=position_jitter(width=0.4,height=0.2))+
   theme_phil()
 
-set.seed(1999)
-pca_data %>%
-  ggplot(., aes(x=PC01,
-                label = name,
-                y=PC03))+
-  geom_jitter(alpha=0.5,
-              width=0.4,
-              height = 0.1)+
-  geom_text(check_overlap = T,
-            size = 2,
-            position=position_jitter(width=0.4,height=0.2))+
-  theme_phil()
+# set.seed(1999)
+# pca_data %>%
+#   ggplot(., aes(x=PC01,
+#                 label = name,
+#                 y=PC03))+
+#   geom_jitter(alpha=0.5,
+#               width=0.4,
+#               height = 0.1)+
+#   geom_text(check_overlap = T,
+#             size = 2,
+#             position=position_jitter(width=0.4,height=0.2))+
+#   theme_phil()
 
 ```
 
-Now place individuals in here.
-
-```{r place reviewers, message=F, fig.height=8, eval = F}
-
-## Quinns
-set.seed(1999)
-pca_data %>%
-  mutate(Quinns_Has_Owned = case_when(have_owned_Quinns == 1 ~ 'yes',
-                                      TRUE ~ 'no')) %>%
-  ggplot(., aes(x=PC01,
-                color = Quinns_Has_Owned,
-                label = name,
-                y=PC02))+
-  geom_jitter(width=0.4,
-              height = 0.1)+
-  geom_text(check_overlap = T,
-            size = 2,
-            position=position_jitter(width=0.4,height=0.2))+
-  theme_phil()+
-  geom_vline(xintercept = 0)+
-  geom_hline(yintercept = 0)+
-  theme(legend.title = element_text())+
-  scale_color_manual(values = c("grey60", "navy"))+
-  facet_wrap(Quinns_Has_Owned~.)
-
-## rahdo
-set.seed(1999)
-pca_data %>%
-  mutate(rahdo_Has_Owned = case_when(have_owned_rahdo == 1 ~ 'yes',
-                                      TRUE ~ 'no')) %>%
-  ggplot(., aes(x=PC01,
-                color = rahdo_Has_Owned,
-                label = name,
-                y=PC02))+
-  geom_jitter(width=0.4,
-              height = 0.1)+
-  geom_text(check_overlap = T,
-            size = 2,
-            position=position_jitter(width=0.4,height=0.2))+
-  theme_phil()+
-  geom_vline(xintercept = 0)+
-  geom_hline(yintercept = 0)+
-  theme(legend.title = element_text())+
-  scale_color_manual(values = c("grey60", "navy"))+
-  facet_wrap(rahdo_Has_Owned~.)
-
-
-## TomVasel
-set.seed(1999)
-pca_data %>%
-  mutate(TomVasel_Has_Owned = case_when(have_owned_TomVasel == 1 ~ 'yes',
-                                      TRUE ~ 'no')) %>%
-  ggplot(., aes(x=PC01,
-                color = TomVasel_Has_Owned,
-                label = name,
-                y=PC02))+
-  geom_jitter(width=0.4,
-              height = 0.1)+
-  geom_text(check_overlap = T,
-            size = 2,
-            position=position_jitter(width=0.4,height=0.2))+
-  theme_phil()+
-  geom_vline(xintercept = 0)+
-  geom_hline(yintercept = 0)+
-  theme(legend.title = element_text())+
-  scale_color_manual(values = c("grey60", "navy"))+
-  facet_wrap(TomVasel_Has_Owned~.)
-
-## ZeeGarcia
-set.seed(1999)
-pca_data %>%
-  mutate(ZeeGarcia_Has_Owned = case_when(have_owned_ZeeGarcia == 1 ~ 'yes',
-                                      TRUE ~ 'no')) %>%
-  ggplot(., aes(x=PC01,
-                color = ZeeGarcia_Has_Owned,
-                label = name,
-                y=PC02))+
-  geom_jitter(width=0.4,
-              height = 0.1)+
-  geom_text(check_overlap = T,
-            size = 2,
-            position=position_jitter(width=0.4,height=0.2))+
-  theme_phil()+
-  geom_vline(xintercept = 0)+
-  geom_hline(yintercept = 0)+
-  theme(legend.title = element_text())+
-  scale_color_manual(values = c("grey60", "navy"))+
-  facet_wrap(ZeeGarcia_Has_Owned~.)
-
-## Gyges
-set.seed(1999)
-pca_data %>%
-  mutate(Gyges_Has_Owned = case_when(have_owned_Gyges == 1 ~ 'yes',
-                                      TRUE ~ 'no')) %>%
-  ggplot(., aes(x=PC01,
-                color = Gyges_Has_Owned,
-                label = name,
-                y=PC02))+
-  geom_jitter(width=0.4,
-              height = 0.1)+
-  geom_text(check_overlap = T,
-            size = 2,
-            position=position_jitter(width=0.4,height=0.2))+
-  theme_phil()+
-  geom_vline(xintercept = 0)+
-  geom_hline(yintercept = 0)+
-  theme(legend.title = element_text())+
-  scale_color_manual(values = c("grey60", "navy"))+
-  facet_wrap(Gyges_Has_Owned~.)
-
-
-
-```
-
-Can also look at publishers.
+We can use this to get a general sense of the landscape of games.
 
 ```{r publishers in pca 1, message=F, fig.height=8}
 
@@ -1728,7 +1619,8 @@ ggplot(pca_data, aes(x=PC01,
    position=position_jitter(width=0.4,height=0.2))+
   theme_phil()+
   geom_vline(xintercept = 0)+
-  geom_hline(yintercept = 0)
+  geom_hline(yintercept = 0)+
+  my_caption
   
 
 p =   ggplot(pca_data, aes(x=PC01,
@@ -1748,7 +1640,7 @@ p =   ggplot(pca_data, aes(x=PC01,
   geom_hline(yintercept = 0) +
   annotate(geom="label",
                 x=10, y=4,
-           label = "Wargames")+
+           label = "Simulation & Wargames")+
   annotate(geom="label",
                 x=-5, y=-3,
            label = "Party Games")+
@@ -1760,13 +1652,16 @@ p =   ggplot(pca_data, aes(x=PC01,
            label = "Euros")+
   annotate(geom="label",
                 x=6, y=-6,
-           label = "Thematic")
+           label = "Thematic")+
+  my_caption
 
 p
 
 ```
 
+#### Publishers
 
+We can highlight publishers in this to see where they generally fall. Fantasy Flight tends to be in the more thematic area.
 
 ```{r publishers in pca 2, fig.height=8}
 
@@ -1776,7 +1671,8 @@ p +
   geom_point(data = 
                pca_data %>%
   left_join(., games_train %>%
-              select(game_id, starts_with("pub"))) %>%
+              select(game_id, starts_with("pub")),
+            by = "game_id") %>%
   mutate(Fantasy_Flight = case_when(pub_fantasy_flight_games == 1 ~ 'Published',
                                     TRUE ~ 'no')) %>%
     filter(Fantasy_Flight == 'Published'),
@@ -1785,7 +1681,8 @@ p +
       color = Fantasy_Flight))+
   geom_text(data = 
               pca_data %>%
-              left_join(., games_train %>%select(game_id, starts_with("pub"))) %>%
+              left_join(., games_train %>%select(game_id, starts_with("pub")),
+                        by = "game_id") %>%
               mutate(Fantasy_Flight = case_when(pub_fantasy_flight_games == 1 ~ 'Published',
                                                 TRUE ~ 'no')) %>%
               filter(Fantasy_Flight == 'Published'),
@@ -1797,13 +1694,19 @@ p +
   theme(legend.title = element_text())+
   scale_color_manual(values = c("navy"))
 
+```
+
+As opposed to Pegasus Spiele, which is more in the Euro and Abstract area.
+
+```{r publishers in pca pegasus, fig.height=8}
 
 ## Pegasus Spiele
 set.seed(1999)
 p+ geom_point(data = 
   pca_data %>%
   left_join(., games_train %>%
-              select(game_id, starts_with("pub"))) %>%
+              select(game_id, starts_with("pub")),
+            by = "game_id") %>%
   mutate(Pegasus_Spiele = case_when(pub_pegasus_spiele == 1 ~ 'Published',
                                     TRUE ~ 'no')) %>%
     filter(Pegasus_Spiele == 'Published'),
@@ -1812,7 +1715,9 @@ p+ geom_point(data =
       color = Pegasus_Spiele))+
   geom_text(data = 
               pca_data %>%
-              left_join(., games_train %>%select(game_id, starts_with("pub"))) %>%
+  left_join(., games_train %>%
+              select(game_id, starts_with("pub")),
+            by = "game_id") %>%
               mutate(Pegasus_Spiele = case_when(pub_pegasus_spiele== 1 ~ 'Published',
                                                 TRUE ~ 'no')) %>%
               filter(Pegasus_Spiele == 'Published'),
@@ -1823,7 +1728,12 @@ p+ geom_point(data =
              position=position_jitter(width=0.4,height=0.2))+
   theme(legend.title = element_text())+
   scale_color_manual(values = c("darkred"))
+```
 
+
+Pretty similar for Rio Grande.
+
+```{r publishers in pca rio grande, fig.height=8}
 
 # Rio Grande
 set.seed(1999)
@@ -1831,7 +1741,8 @@ p +
   geom_point(data = 
   pca_data %>%
   left_join(., games_train %>%
-              select(game_id, starts_with("pub"))) %>%
+              select(game_id, starts_with("pub")),
+            by = "game_id") %>%
   mutate(Rio_Grande_Games = case_when(pub_rio_grande_games == 1 ~ 'Published',
                                     TRUE ~ 'no')) %>%
     filter(Rio_Grande_Games == 'Published'),
@@ -1852,13 +1763,20 @@ p +
   theme(legend.title = element_text())+
   scale_color_manual(values = c("blue"))
 
+```
+
+..and Zman
+
+```{r publishers in Zman, fig.height=8}
+
 # ZMan
 set.seed(1999)
 p + 
   geom_point(data = 
   pca_data %>%
-  left_join(., games_train %>%
-              select(game_id, starts_with("pub"))) %>%
+ left_join(., games_train %>%
+              select(game_id, starts_with("pub")),
+            by = "game_id") %>%
   mutate(ZMan_Games = case_when(pub_zman_games == 1 ~ 'Published',
                                     TRUE ~ 'no')) %>%
     filter(ZMan_Games == 'Published'),
@@ -1867,7 +1785,9 @@ p +
       color = ZMan_Games))+
   geom_text(data = 
               pca_data %>%
-              left_join(., games_train %>%select(game_id, starts_with("pub"))) %>%
+ left_join(., games_train %>%
+              select(game_id, starts_with("pub")),
+            by = "game_id") %>%
               mutate(ZMan_Games = case_when(pub_zman_games== 1 ~ 'Published',
                                                 TRUE ~ 'no')) %>%
               filter(ZMan_Games == 'Published'),
@@ -1879,13 +1799,20 @@ p +
   theme(legend.title = element_text())+
   scale_color_manual(values = c("black"))
 
+```
+
+GMT is perhaps the most distinctive.
+
+```{r publishers in GMT, fig.height=8}
+
 # GMT
 set.seed(1999)
 p + 
   geom_point(data = 
   pca_data %>%
-  left_join(., games_train %>%
-              select(game_id, starts_with("pub"))) %>%
+ left_join(., games_train %>%
+              select(game_id, starts_with("pub")),
+            by = "game_id") %>%
   mutate(GMT_Games = case_when(pub_gmt_games == 1 ~ 'Published',
                                     TRUE ~ 'no')) %>%
     filter(GMT_Games == 'Published'),
@@ -1894,7 +1821,9 @@ p +
       color = GMT_Games))+
   geom_text(data = 
               pca_data %>%
-              left_join(., games_train %>%select(game_id, starts_with("pub"))) %>%
+ left_join(., games_train %>%
+              select(game_id, starts_with("pub")),
+            by = "game_id") %>%
               mutate(GMT_Games = case_when(pub_gmt_games== 1 ~ 'Published',
                                                 TRUE ~ 'no')) %>%
               filter(GMT_Games == 'Published'),
@@ -1907,6 +1836,129 @@ p +
   scale_color_manual(values = c("red2"))
 
 ```
+
+We can do the same thing for individuals, plotting the games they own. Quinns' collection is pretty much all over, as he has a pretty diverse collection.
+
+```{r place reviewers quinns, message=F, fig.height=8, eval = F}
+
+# Quinns
+set.seed(1999)
+p + 
+  geom_point(data = 
+               pca_data %>%
+               mutate(Quinns = case_when(have_owned_Quinns == 1 ~ 'In Collection',
+                             TRUE ~ 'no')) %>%
+               filter(Quinns == 'In Collection'),
+  aes(x=PC01,
+      y=PC02,
+      color = Quinns))+
+  geom_text(data = 
+               pca_data %>%
+               mutate(Quinns = case_when(have_owned_Quinns == 1 ~ 'In Collection',
+                             TRUE ~ 'no')) %>%
+               filter(Quinns == 'In Collection'),
+  aes(label = name,
+      color = Quinns),
+  check_overlap = T,
+  size = 2,
+  position=position_jitter(width=0.4,height=0.2))+
+  theme(legend.title = element_text())+
+  scale_color_manual(values = c("navy"))
+
+```
+
+Rahdo
+
+```{r place reviewers rahdo, message=F, fig.height=8, eval = F}
+
+# rahdo
+set.seed(1999)
+p + 
+  geom_point(data = 
+               pca_data %>%
+               mutate(rahdo = case_when(have_owned_rahdo == 1 ~ 'In Collection',
+                             TRUE ~ 'no')) %>%
+               filter(rahdo == 'In Collection'),
+  aes(x=PC01,
+      y=PC02,
+      color = rahdo))+
+  geom_text(data = 
+               pca_data %>%
+               mutate(rahdo = case_when(have_owned_rahdo == 1 ~ 'In Collection',
+                             TRUE ~ 'no')) %>%
+               filter(rahdo == 'In Collection'),
+  aes(label = name,
+      color = rahdo),
+  check_overlap = T,
+  size = 2,
+  position=position_jitter(width=0.4,height=0.2))+
+  theme(legend.title = element_text())+
+  scale_color_manual(values = c("navy"))
+
+```
+
+Mark Bigney
+
+```{r place reviewers mark bigney, message=F, fig.height=8, eval = F}
+
+# Gyges
+set.seed(1999)
+p + 
+  geom_point(data = 
+               pca_data %>%
+               mutate(Gyges = case_when(have_owned_Gyges == 1 ~ 'In Collection',
+                             TRUE ~ 'no')) %>%
+               filter(Gyges == 'In Collection'),
+  aes(x=PC01,
+      y=PC02,
+      color = Gyges))+
+  geom_text(data = 
+               pca_data %>%
+               mutate(Gyges = case_when(have_owned_Gyges == 1 ~ 'In Collection',
+                             TRUE ~ 'no')) %>%
+               filter(Gyges == 'In Collection'),
+  aes(label = name,
+      color = Gyges),
+  check_overlap = T,
+  size = 2,
+  position=position_jitter(width=0.4,height=0.2))+
+  theme(legend.title = element_text())+
+  scale_color_manual(values = c("navy"))
+
+```
+
+ZeeGaria
+
+```{r place reviewers watch it played, message=F, fig.height=8, eval = F}
+
+# ZeeGarcia
+set.seed(1999)
+p + 
+  geom_point(data = 
+               pca_data %>%
+               mutate(ZeeGarcia = case_when(have_owned_ZeeGarcia == 1 ~ 'In Collection',
+                             TRUE ~ 'no')) %>%
+               filter(ZeeGarcia == 'In Collection'),
+  aes(x=PC01,
+      y=PC02,
+      color = ZeeGarcia))+
+  geom_text(data = 
+               pca_data %>%
+               mutate(ZeeGarcia = case_when(have_owned_ZeeGarcia == 1 ~ 'In Collection',
+                             TRUE ~ 'no')) %>%
+               filter(ZeeGarcia == 'In Collection'),
+  aes(label = name,
+      color = ZeeGarcia),
+  check_overlap = T,
+  size = 2,
+  position=position_jitter(width=0.4,height=0.2))+
+  theme(legend.title = element_text())+
+  scale_color_manual(values = c("navy"))
+
+
+```
+
+### Modeling
 
 We'll now create the recipe for predictive modeling.
 
@@ -2509,7 +2561,7 @@ save(all_models, file = paste("reviewer_predictions_models/reviewer_", Sys.Date(
 
 ### Examining Coefficients
 
-```{r get coefs from the models, warning =F, fig.height=10}
+```{r get coefs from the models, warning =F, fig.width=10, fig.height=8}
 
 training_coefs = all_models %>%
   filter(outcome_type == 'own' | outcome_type == 'have_played' | outcome_type == 'have_owned') %>%
@@ -2568,7 +2620,8 @@ plot_coef_function <- function(coefs,
          caption= paste(paste("Data from boardgamegeek.com as of", max(as.Date(baked_train$timestamp))),
                         paste("Data and analysis at github.com/phenrickson/bgg"), sep="\n"))+
     theme(panel.grid.minor = element_blank(),
-          panel.grid.major = element_blank())
+          panel.grid.major = element_blank())+
+    my_caption
 
 }
 
@@ -2724,7 +2777,9 @@ reviewer_table_function = function(preds,
     bg(., j = c("Mean", "Gyges", "mrbngr",
            #     "NoPunInc",
                 "Quinns", "rahdo", "TomVas", "WtchItPly", "ZeeGarc"),
-       bg = col_func)
+       bg = col_func) %>%
+    set_caption(paste("Highest Pr(", paste(outcome), ") by Reviewer"))
+
   
 }
 
@@ -2785,7 +2840,9 @@ individual_table_function <- function(preds, username) {
     bg(., j = c("Own",
             #    "Owned",
                 "Played"),
-       bg = col_func)
+       bg = col_func) %>%
+    set_caption(paste("Pr(Own) and Pr(Played) for ", paste(username), sep=""))
+
   
 }
 
@@ -2967,7 +3024,8 @@ baked_train %>%
   facet_wrap(outcome_type~.,
              ncol = 3)+
   theme_phil()+
-  scale_color_colorblind()
+  scale_color_colorblind()+
+  my_caption
 
 baseline_probs = baked_train %>%
   select(yearpublished, game_id, name, starts_with("have_owned"), starts_with("own"), starts_with("have_played")) %>%
@@ -3020,7 +3078,7 @@ baseline_logloss
 ```
 
 
-```{r evalaute 2020 preds, fig.height=8}
+```{r evalaute 2020 preds}
 
 test_probs_with_actual %>%
   filter(yearpublished == 2020) %>%
@@ -3037,7 +3095,8 @@ test_probs_with_actual %>%
   theme_phil()+
   coord_flip(ylim = c(0.5, 0.9))+
   scale_color_colorblind()+
-  xlab("")
+  xlab("")+
+  my_caption
 
 
 test_probs_with_actual %>%
@@ -3054,7 +3113,8 @@ test_probs_with_actual %>%
   theme_phil()+
   facet_wrap(yearpublished + outcome_type ~.,
              ncol = 3)+
-  scale_color_colorblind()
+  scale_color_colorblind()+
+  my_caption
 
 ```
 
@@ -3165,7 +3225,9 @@ test_probs_with_actual %>%
     bg(., j = c("Mean", "Gyges", "mrbngr", 
               #  "NoPunInc",
                 "Quinns", "rahdo", "TomVas", "WtchItPly", "ZeeGarc"),
-       bg = col_func)
+       bg = col_func) %>%
+      set_caption(paste("Highest Pr(", paste("own"), ") by Reviewer for Games Published in 2020"))
+
 
 ```
 
@@ -3194,7 +3256,9 @@ test_probs_with_actual %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
-     bg = 'deepskyblue1') 
+     bg = 'deepskyblue1') %>%
+        set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
+
 
 # quinns
 test_probs_with_actual %>%
@@ -3217,7 +3281,9 @@ test_probs_with_actual %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
-     bg = 'deepskyblue1')
+     bg = 'deepskyblue1') %>%
+      set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
+
 
 # TomVasel
 test_probs_with_actual %>%
@@ -3240,7 +3306,9 @@ test_probs_with_actual %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
-     bg = 'deepskyblue1')
+     bg = 'deepskyblue1') %>%
+          set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
+
 
 # Gyges
 test_probs_with_actual %>%
@@ -3263,7 +3331,9 @@ test_probs_with_actual %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
-     bg = 'deepskyblue1')
+     bg = 'deepskyblue1') %>%
+          set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
+
 
 # mrbananagrabber
 test_probs_with_actual %>%
@@ -3286,7 +3356,9 @@ test_probs_with_actual %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
-     bg = 'deepskyblue1')
+     bg = 'deepskyblue1') %>%
+          set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
+
   
 # Watch_It_Played
 test_probs_with_actual %>%
@@ -3308,7 +3380,9 @@ test_probs_with_actual %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
-     bg = 'deepskyblue1')
+     bg = 'deepskyblue1') %>%
+          set_caption(paste("Highest Pr(", paste("own"), ") for Games Published in 2020"))
+
   
 
 ```
@@ -3354,7 +3428,9 @@ test_probs_with_actual %>%
     bg(., j = c("Mean", "Gyges", "mrbngr", 
               #  "NoPunInc",
                 "Quinns", "rahdo", "TomVas", "WtchItPly", "ZeeGarc"),
-       bg = col_func)
+       bg = col_func) %>%
+        set_caption(paste("Highest Pr(", paste("own"), ") by Reviewer for Games Published in 2021"))
+
 
 ```
 
@@ -3382,7 +3458,8 @@ bind_rows(baked_train,
    guides(label = "none",
           color = "none",
           size = "none")+
-   scale_color_manual(values = c("grey60", "darkred"))
+   scale_color_manual(values = c("grey60", "darkred"))+
+  my_caption
 
 
 ```
@@ -3565,7 +3642,9 @@ test_probs_with_actual %>%
     bg(., j = c("Mean", "Gyges", "mrbngr", 
               #  "NoPunInc",
                 "Quinns", "rahdo", "TomVas", "WtchItPly", "ZeeGarc"),
-       bg = col_func)
+       bg = col_func) %>%
+      set_caption(paste("Highest Pr(", paste("own"), ") by Reviewer for Games Published in 2022"))
+
 ```
 
 ## Predicting Individual Games
