@@ -32,7 +32,7 @@ bigquerycon<-dbConnect(
 source("functions/get_bgg_data_from_github.R")
 
 # get todays data from bgg
-#bgg_today<-get_bgg_data_from_github(Sys.Date())
+#bgg_today<-get_bgg_data_from_github(Sys.Date()-7)
 bgg_today<-get_bgg_data_from_github(Sys.Date())
 
 # # trim to load
@@ -57,9 +57,10 @@ rm(bgg_today, bgg_load_today)
 
 
 #
-# active_games<-DBI::dbGetQuery(bigquerycon, 
+# active_games<-DBI::dbGetQuery(bigquerycon,
 #                           'SELECT DISTINCT date
 #                            FROM bgg.active_bgg_rankings_view')
+
 
 ### push to GCP 
 

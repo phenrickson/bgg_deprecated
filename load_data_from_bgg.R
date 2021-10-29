@@ -434,6 +434,8 @@ dbWriteTable(bigquerycon,
              overwrite = T,
              value = game_recplayers)
 
+rm(list=ls())
+
 # ## id tables
 # bq_game_ids<-as_bq_table(list(project_id = PROJECT_ID,
 #                                   dataset_id = "bgg",
