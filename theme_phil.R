@@ -10,6 +10,12 @@ theme_phil <- function () {
                       #  strip.text.x = element_text(size = 7),
                       #  strip.text.y = element_text(size = 7),
                         legend.position = "top",
+                      axis.text.x = element_text(size=rel(0.75)),
+                      axis.text.y = element_text(size=rel(0.75)),
+                      plot.caption = element_text(size=8,
+                                                  hjust = 1,
+                                                  vjust = 1,
+                                                  margin = unit(c(6,0,0,0), "points")),
                         legend.title = element_blank(),
                         panel.grid.minor = element_blank(),
                        panel.spacing = unit(6.5, "mm"),
@@ -19,8 +25,10 @@ theme_phil <- function () {
                       panel.grid = element_line(colour = "grey80")
                       
                       # remove spacing between facets
-                       
-
+                      
                 )
                 
 }
+
+a=theme_phil()
+a$plot.caption
