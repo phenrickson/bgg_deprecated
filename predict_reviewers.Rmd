@@ -4,17 +4,20 @@ author: Phil Henrickson
 date: "`r Sys.Date()`"
 output: 
   html_document:
-    keep_md: true
+        toc: true
+        toc_depth: 3
+        keep_md: true
+    
 ---
 
-This notebook is for building predictive models of boardgame ratings.
+This notebook is for building predictive models of boardgame ratings for individal users.
 
 ```{r global seetings, echo=F, warning=F, message=F}
 
 knitr::opts_chunk$set(echo = F,
                       dev="png",
                       fig.width = 8,
-                      fig.height = 8)
+                      fig.height = 6)
 
 options(knitr.duplicate.label = "allow")
 
@@ -138,7 +141,7 @@ game_artists<-DBI::dbGetQuery(bigquerycon,
 
 ```
 
-## Collection Data
+## Exploratory Analysis
 
 Now we'll grab the collections data for bgg users that we're tracking.
 
@@ -336,6 +339,7 @@ collection_info %>%
   my_caption
 
 ```
+
 So the median rating for games he owns is 8, as opposed to 6 for games he doesn't. If we make the assumption that he owns above an 8 for games published in 2018 and 2019, what do games would we consider him owning.
 
 ```{r look at games he rates highly as likely owned}
@@ -717,7 +721,7 @@ collection_info %>%
 
 ```
 
-#### Differences from BGG
+### Differences from BGG
 
 What games does each reviewer disagree with the community the most?
 
@@ -749,7 +753,6 @@ col_func<- function(x) {
    mutate_if(is.numeric, round, 2)
 
 ```
-
 
 ##### Quinns
 
@@ -841,7 +844,6 @@ differences %>%
 
 
 ```
-
 
 ##### ZeeGarcia
 
@@ -1232,7 +1234,7 @@ collection_pivot %>%
 
 Which collections overlap the most?
 
-```{r upset plot, fig.height=8, fig.width=10}
+```{r upset plot, fig.height=8, fig.width=11}
 
 collection_pivot %>%
   select(-yearpublished, -game_id, -name) %>%
@@ -1845,6 +1847,8 @@ p +
 
 ```
 
+### Individuals
+
 We can do the same thing for individuals, plotting the games they own. Quinns' collection is pretty much all over, as he has a pretty diverse collection.
 
 ```{r place reviewers quinns, message=F, fig.height=8, eval = F}
@@ -1966,7 +1970,7 @@ p +
 
 ```
 
-### Modeling
+## Training Models
 
 We'll now create the recipe for predictive modeling.
 
@@ -2342,7 +2346,7 @@ finalize_workflow_function<- function(df, input_model, input_recipe, tune_result
    
 ```
 
-## Train Models
+### Fitting Models
 
 We can now fit models for each outcome we are interested in.
 
@@ -2569,7 +2573,7 @@ save(all_models, file = paste("reviewer_predictions_models/reviewer_", Sys.Date(
 
 ### Examining Coefficients
 
-```{r get coefs from the models, warning =F, fig.width=10, fig.height=8}
+```{r get coefs from the models, warning =F, fig.width=11, fig.height=8}
 
 training_coefs = all_models %>%
   filter(outcome_type == 'own' | outcome_type == 'have_played' | outcome_type == 'have_owned') %>%
@@ -2633,43 +2637,87 @@ plot_coef_function <- function(coefs,
 
 }
 
+```
+
+
+Let's look at the coefficient for myself to start. I'm not surprised by the effect for Fantasy Flight, as that's like half my collection. I'm kind of interested in the negative effects of fantasy - I guess relative to the number of fantasy games that exist, I don't own all that many. Similarly, I realized at some point in going over my collection that I actually don't have that many games with dice rolling.
+
+```{r coefs mrbananagrabber, warning=F, message=F, fig.height=10, fig.width=11}
 # for mrbananagrabber
 plot_coef_function(training_coefs,
-                   0.0,
+                   0.01,
                    "mrbananagrabber")
 
-# for mrbananagrabber
+```
+
+What about Quinns? Similar effects for number of mechanics mechanics, as that's pretty universal. He also has a Zman, Asmodee, Fantasy Flight positive effect, similar to me, which isn't surprising given that I probably follow his tastes more than anyone else. The Spies-Secret Agents effect is probably why we'll see a lot of hidden identity games that he likes show up. There are some interesting effects in there in the negatives - stock holding, simulation, dice rolling. It's interesting to me that he you see a negative effect for WWII, given that he loves the Undaunted series and Memoir 44, but again, relative to the number of WWII games that are out there, they compose a relatively small part of his collection.
+
+```{r coefs Quinns, warning=F, message=F, fig.height=10, fig.width=11}
+
+# for Quinns
 plot_coef_function(training_coefs,
-                   effect_size = 0,
+                   effect_size = 0.02,
                              "Quinns")
+
+```
+
+Rahdo might have the most easily understood tastes out of anyone here. Even before looking at the model, I know that he dislikes take that mechanics, conflict heavy and pick up and deliver games, and he generally only keeps games that play well with 2 players. And if we look at the model, we can see that show up: wargames, max players, min players, take that, bluffing, miniatures all negative. Rahdo's collection also skews more heavily towards recent games, so yearpublished has a pretty huge effect for him. He also likes a city of city building and economic games, so not too surprising to see those show up.
+
+```{r coefs rahdo, warning=F, message=F, fig.height=10, fig.width=11}
 
 # for rahdo
 plot_coef_function(training_coefs,
                    effect_size = 0.05,
                    "rahdo")
 
-# for TomVasel
-plot_coef_function(training_coefs,
-                   effect_size = 0.05,
-                             "TomVasel")
-  
-# for TomVasel
-plot_coef_function(training_coefs,
-                   effect_size = 0.05,
-                             "Gyges")
+```
 
-# for TomVasel
-plot_coef_function(training_coefs,
-                   effect_size = 0.0,
-                             "Watch_It_Played")
+I actually don't know Tom Vasel's tastes all that well. One thing I did notice, though, is that because he's been reviewing games for such a long time, his pile of previously owned games is massive. As a result, if you look at the 'have owned' effect for yearpublished, it's super negative, whereas his owned games is positive for yearpublished. 
+
+```{r coefs tom vasel, warning=F, message=F, fig.height=10, fig.width=11}
 
 # for TomVasel
 plot_coef_function(training_coefs,
                    effect_size = 0.1,
+                             "TomVasel")
+
+```
+
+Similar plots for Mark Bigney. Here's a guy who likes his Reiner Knizia and dislikes Games Workshop. He also has some pretty stark differences between his played and own models, as he generally plays a lot of games for his podcast that he doesn't go on to keep in his collection.
+
+```{r coefs Gyges, warning=F, message=F, fig.height=10, fig.width=11}
+
+# for Gyges
+plot_coef_function(training_coefs,
+                   effect_size = 0.05,
+                             "Gyges")
+
+```
+
+Watch It Played. He only has games listed that he owns, and doesn't have ratings, so the models are all the same.
+
+```{r coefs Watch_It_Played, warning=F, message=F, fig.height=10, fig.width=11}
+
+# for Watch_It_Played
+plot_coef_function(training_coefs,
+                   effect_size = 0.05,
+                             "Watch_It_Played")
+
+```
+
+ZeeGarcia
+
+```{r coefs zee, warning=F, message=F, fig.height=10, fig.width=11}
+
+# for ZeeGaarcia
+plot_coef_function(training_coefs,
+                   effect_size = 0.05,
                              "ZeeGarcia")
   
-  
 ```
+
+
+
 
 ### Examining OOS Predictions
 
@@ -2880,7 +2928,7 @@ individual_table_function(training_preds_glmnet,
 
 ```
 
-### Predicting Games Published 2020-2022
+## Predicting Games Published 2020-2022
 
 We can now use the resulting models to predict 2020 games.
 
@@ -3086,7 +3134,7 @@ baseline_logloss
 ```
 
 
-```{r evalaute 2020 preds}
+```{r evalaute 2020 preds, fig.height=8, fig.width=11}
 
 test_probs_with_actual %>%
   filter(yearpublished == 2020) %>%
@@ -3128,7 +3176,7 @@ test_probs_with_actual %>%
 
 We can evaluate the logloss for our models compared to the null.
 
-```{r compare}
+```{r compare, warning=F, message=F}
 
 test_probs_with_actual %>%
   filter(yearpublished == 2020) %>%
@@ -3144,7 +3192,7 @@ test_probs_with_actual %>%
 
 We can also calculate precision and recall.
 
-```{r specify thresholds and compute}
+```{r specify thresholds and compute, warning=F, message=F, fig.height=8, fig.width=11}
 
 cuts = seq(0.01, 0.5, by = 0.01)
 
@@ -3342,6 +3390,29 @@ test_probs_with_actual %>%
      bg = 'deepskyblue1') %>%
           set_caption(paste("Highest Pr(Own) for Games Published in 2020"))
 
+# Zee
+test_probs_with_actual %>%
+  filter(outcome_type == 'own') %>%
+  filter(yearpublished == 2020) %>%
+  group_by(game_id, name) %>%
+  rename(pred = value) %>%
+  mutate(mean = mean(pred),
+           sd = sd(pred)) %>%
+  filter(username == 'ZeeGarcia') %>%
+  arrange(desc(pred)) %>%
+  select(username,outcome_type, yearpublished, game_id, name, pred, actual) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  mutate(yearpublished = as.character(yearpublished),
+         game_id = as.character(game_id)) %>%
+  ungroup() %>%
+  mutate(rank = row_number()) %>%
+  select(everything(), rank) %>%
+  head(50) %>%
+  flextable() %>%
+  flextable::autofit() %>%
+  bg(., i = ~ actual == 'yes',
+     bg = 'deepskyblue1') %>%
+          set_caption(paste("Highest Pr(Own) for Games Published in 2020"))
 
 # mrbananagrabber
 test_probs_with_actual %>%
@@ -3471,6 +3542,8 @@ bind_rows(baked_train,
 
 ```
 
+We can look at individuals for 2021
+
 ```{r individual 2021 with actual}
 
 # rahdo
@@ -3489,7 +3562,8 @@ test_probs_with_actual %>%
          game_id = as.character(game_id)) %>%
   ungroup() %>%
   mutate(rank = row_number()) %>%
-  select(everything(), rank) %>%
+  select(everything(), rank) %>% 
+  head(50) %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
@@ -3512,6 +3586,7 @@ test_probs_with_actual %>%
   ungroup() %>%
   mutate(rank = row_number()) %>%
   select(everything(), rank) %>%
+  head(50) %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
@@ -3534,6 +3609,7 @@ test_probs_with_actual %>%
   ungroup() %>%
   mutate(rank = row_number()) %>%
   select(everything(), rank) %>%
+  head(50) %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
@@ -3556,6 +3632,7 @@ test_probs_with_actual %>%
   ungroup() %>%
   mutate(rank = row_number()) %>%
   select(everything(), rank) %>%
+  head(50) %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
@@ -3578,6 +3655,7 @@ test_probs_with_actual %>%
   ungroup() %>%
   mutate(rank = row_number()) %>%
   select(everything(), rank) %>%
+  head(50) %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
@@ -3600,6 +3678,30 @@ test_probs_with_actual %>%
   ungroup() %>%
   mutate(rank = row_number()) %>%
   select(everything(), rank) %>%
+  head(50) %>%
+  flextable() %>%
+  flextable::autofit() %>%
+  bg(., i = ~ actual == 'yes',
+     bg = 'deepskyblue1')
+
+# ZeeGarcia
+test_probs_with_actual %>%
+  filter(outcome_type == 'own') %>%
+  filter(yearpublished == 2021) %>%
+  group_by(game_id, name) %>%
+  rename(pred = value) %>%
+  mutate(mean = mean(pred),
+           sd = sd(pred)) %>%
+  filter(username == 'ZeeGarcia') %>%
+  arrange(desc(pred)) %>%
+  select(username,outcome_type, yearpublished, game_id, name, pred, actual) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  mutate(yearpublished = as.character(yearpublished),
+         game_id = as.character(game_id)) %>%
+  ungroup() %>%
+  mutate(rank = row_number()) %>%
+  select(everything(), rank) %>%
+  head(50) %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ actual == 'yes',
@@ -3643,7 +3745,7 @@ test_probs_with_actual %>%
            ) %>%
     select(Method, Outcome, ID, Published, Game, Mean, SD, mrbngr, everything()) %>%
   arrange(desc(Mean)) %>%
-    head(25) %>%
+    head(50) %>%
     flextable() %>%
     flextable::autofit() %>%
     bg(., j = c("Mean", "Gyges", "mrbngr", 
@@ -3940,8 +4042,77 @@ pred_record %>%
 
 ```
 
+Tomorrow Dies Today
 
-## Save
+```{r tomorrow dies today, warning=F}
+id = 305498
+
+# get the game
+raw_record = get_game_record(id)
+
+# attach all names from training
+record = bind_rows(raw_record,
+                   games_train[0,])
+
+# bake using previously trained recipe
+baked_record = recipe_model %>%
+  prep(games_train, strings_as_factor = F) %>%
+  bake(record)
+         
+
+# predict
+pred_record = all_models %>%
+  filter(outcome_type != 'rating') %>%
+  select(username, outcome_type, glmnet_fit) %>%
+  #select(username, outcome_type, glmnet_fit, xgbTree_fit) %>%
+  mutate(glmnet_preds = map(glmnet_fit,
+                            ~ .x %>%
+                              predict(baked_record, type = 'prob') %>%
+                              rename(glmnet = .pred_1) %>%
+                              select(glmnet) %>%
+                              mutate(.row = row_number()))) %>%
+  # mutate(xgbTree_preds = map(xgbTree_fit,
+  #                            ~ .x %>%
+  #                              predict(baked_test, type = 'prob') %>%
+  #                              rename(xgbTree = .pred_1) %>%
+  #                              select(xgbTree) %>%
+  #                              mutate(.row = row_number()))) %>%
+  select(username, outcome_type, glmnet_preds) %>%
+ # select(username, outcome_type, glmnet_preds, xgbTree_preds) %>%
+  unnest() %>%
+  select(-one_of(".row1")) %>%
+  left_join(., baked_record %>%
+              mutate(.row = row_number()),
+            by = ".row") 
+  
+
+# now look at the prediction
+pred_record %>%
+  filter(outcome_type == 'own' | outcome_type == 'have_played') %>%
+  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type) %>%
+  mutate(method = "glmnet") %>%
+  spread(outcome_type, glmnet) %>%
+  mutate(game_id = as.character(game_id),
+         yearpublished = as.character(yearpublished)) %>%
+  rename(Method = method,
+         Published = yearpublished,
+         ID = game_id,
+         Game = name,
+         User = username) %>%
+  rename(`Pr(Own)` = own,
+         `Pr(Play)` = have_played) %>%
+  arrange(desc(`Pr(Own)`)) %>%
+    select(Method, Published, ID, Game, User, `Pr(Own)`, `Pr(Play)`) %>%
+      mutate_if(is.numeric, round, 2) %>%
+    flextable() %>%
+    flextable::autofit() %>%
+    bg(., j = c("`Pr(Own)`", "`Pr(Play)`"),
+       bg = col_func)
+
+
+```
+
+## Save Output
 
 ```{r save outputs}
 
