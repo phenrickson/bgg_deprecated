@@ -3542,6 +3542,75 @@ bind_rows(baked_train,
 
 ```
 
+Where do games rank overall?
+
+
+```{r look at games by rank}
+
+perc_func<- function(x) {
+  
+  breaks<-seq(0, 1, 0.01)
+#  breaks = weight_deciles
+  colorRamp=colorRampPalette(c("red", "white", "deepskyblue1"))
+  col_palette <- colorRamp(length(breaks))
+  mycut <- cut(x, 
+    breaks = breaks,
+    include.lowest = TRUE, 
+    right=T,
+    label = FALSE)
+  col_palette[mycut]
+  
+}
+
+test_probs_with_actual %>%
+    filter(outcome_type == 'own') %>%
+    filter(yearpublished == 2021) %>%
+    select(-.row, -actual, -variable) %>%
+      rename(pred = value) %>%
+  group_by(username) %>%
+  do(data.frame(., newval = ecdf(.$pred)(.$pred))) %>%
+  rename(perc = newval) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  select(-pred) %>%
+ group_by(game_id, name) %>%
+  mutate(mean = mean(perc),
+         sd = sd(perc)) %>%
+  spread(username, perc) %>%
+    mutate(method = 'glmnet') %>%
+    mutate_if(is.numeric, round, 2) %>%
+    mutate(game_id = as.character(game_id),
+           yearpublished = as.character(yearpublished)) %>%
+  arrange(desc(mean)) %>%
+  ungroup() %>%
+  mutate(rank = row_number()) %>%
+    rename(Outcome = outcome_type,
+           Mean = mean,
+           Rank = rank,
+           SD = sd,
+           Method = method,
+           Published = yearpublished,
+           ID = game_id,
+           Game = name,
+           mrbngr = mrbananagrabber,
+           # NoPunInc = NoPunIncluded,
+           TomVas = TomVasel,
+           ZeeGarc = ZeeGarcia,
+           WtchItPly = Watch_It_Played
+    ) %>%
+  select(-SD) %>%
+    select(Method, Outcome, ID, Published, Game, Rank, Mean, mrbngr, everything()) %>%
+    mutate_if(is.numeric, round, 2) %>%
+    flextable() %>%
+    flextable::autofit()  %>%
+    bg(., j = c("Gyges", "mrbngr",
+                #  "NoPunInc",
+                "Quinns", "rahdo", "TomVas", "WtchItPly", "ZeeGarc"),
+       bg = perc_func) %>%
+          set_caption(paste("Percentile Ranks by Reviewer for Games Published in 2021"))
+
+
+```
+ 
 We can look at individuals for 2021
 
 ```{r individual 2021 with actual}
@@ -3755,6 +3824,75 @@ test_probs_with_actual %>%
       set_caption(paste("Highest Pr(Own) by Reviewer for Games Published in 2022"))
 
 ```
+
+
+And percentiles for 2022.
+
+```{r percentiels for 2022 by reviewer, warning=F, message=F}
+
+perc_func<- function(x) {
+  
+  breaks<-seq(0, 1, 0.01)
+#  breaks = weight_deciles
+  colorRamp=colorRampPalette(c("red", "white", "deepskyblue1"))
+  col_palette <- colorRamp(length(breaks))
+  mycut <- cut(x, 
+    breaks = breaks,
+    include.lowest = TRUE, 
+    right=T,
+    label = FALSE)
+  col_palette[mycut]
+  
+}
+
+test_probs_with_actual %>%
+    filter(outcome_type == 'own') %>%
+    filter(yearpublished == 2022) %>%
+    select(-.row, -actual, -variable) %>%
+      rename(pred = value) %>%
+  group_by(username) %>%
+  do(data.frame(., newval = ecdf(.$pred)(.$pred))) %>%
+  rename(perc = newval) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  select(-pred) %>%
+ group_by(game_id, name) %>%
+  mutate(mean = mean(perc),
+         sd = sd(perc)) %>%
+  spread(username, perc) %>%
+    mutate(method = 'glmnet') %>%
+    mutate_if(is.numeric, round, 2) %>%
+    mutate(game_id = as.character(game_id),
+           yearpublished = as.character(yearpublished)) %>%
+  arrange(desc(mean)) %>%
+  ungroup() %>%
+  mutate(rank = row_number()) %>%
+    rename(Outcome = outcome_type,
+           Mean = mean,
+           Rank = rank,
+           SD = sd,
+           Method = method,
+           Published = yearpublished,
+           ID = game_id,
+           Game = name,
+           mrbngr = mrbananagrabber,
+           # NoPunInc = NoPunIncluded,
+           TomVas = TomVasel,
+           ZeeGarc = ZeeGarcia,
+           WtchItPly = Watch_It_Played
+    ) %>%
+  select(-SD) %>%
+    select(Method, Outcome, ID, Published, Game, Rank, Mean, mrbngr, everything()) %>%
+    mutate_if(is.numeric, round, 2) %>%
+    flextable() %>%
+    flextable::autofit()  %>%
+    bg(., j = c("Gyges", "mrbngr",
+                #  "NoPunInc",
+                "Quinns", "rahdo", "TomVas", "WtchItPly", "ZeeGarc"),
+       bg = perc_func) %>%
+          set_caption(paste("Percentile Ranks by Reviewer for Games Published in 2021"))
+
+```
+
 
 ## Predicting Individual Games
 
@@ -4111,6 +4249,335 @@ pred_record %>%
 
 
 ```
+
+Final Girl
+
+```{r final girl, warning=F}
+id = 277659
+
+# get the game
+raw_record = get_game_record(id)
+
+# attach all names from training
+record = bind_rows(raw_record,
+                   games_train[0,])
+
+# bake using previously trained recipe
+baked_record = recipe_model %>%
+  prep(games_train, strings_as_factor = F) %>%
+  bake(record)
+         
+
+# predict
+pred_record = all_models %>%
+  filter(outcome_type != 'rating') %>%
+  select(username, outcome_type, glmnet_fit) %>%
+  #select(username, outcome_type, glmnet_fit, xgbTree_fit) %>%
+  mutate(glmnet_preds = map(glmnet_fit,
+                            ~ .x %>%
+                              predict(baked_record, type = 'prob') %>%
+                              rename(glmnet = .pred_1) %>%
+                              select(glmnet) %>%
+                              mutate(.row = row_number()))) %>%
+  # mutate(xgbTree_preds = map(xgbTree_fit,
+  #                            ~ .x %>%
+  #                              predict(baked_test, type = 'prob') %>%
+  #                              rename(xgbTree = .pred_1) %>%
+  #                              select(xgbTree) %>%
+  #                              mutate(.row = row_number()))) %>%
+  select(username, outcome_type, glmnet_preds) %>%
+ # select(username, outcome_type, glmnet_preds, xgbTree_preds) %>%
+  unnest() %>%
+  select(-one_of(".row1")) %>%
+  left_join(., baked_record %>%
+              mutate(.row = row_number()),
+            by = ".row") 
+  
+
+# now look at the prediction
+pred_record %>%
+  filter(outcome_type == 'own' | outcome_type == 'have_played') %>%
+  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type) %>%
+  mutate(method = "glmnet") %>%
+  spread(outcome_type, glmnet) %>%
+  mutate(game_id = as.character(game_id),
+         yearpublished = as.character(yearpublished)) %>%
+  rename(Method = method,
+         Published = yearpublished,
+         ID = game_id,
+         Game = name,
+         User = username) %>%
+  rename(`Pr(Own)` = own,
+         `Pr(Play)` = have_played) %>%
+  arrange(desc(`Pr(Own)`)) %>%
+    select(Method, Published, ID, Game, User, `Pr(Own)`, `Pr(Play)`) %>%
+      mutate_if(is.numeric, round, 2) %>%
+    flextable() %>%
+    flextable::autofit() %>%
+    bg(., j = c("`Pr(Own)`", "`Pr(Play)`"),
+       bg = col_func)
+
+
+```
+
+Cosmic Frog
+
+
+```{r cosmic frog, warning=F, message=F}
+
+id = 295905
+raw_record = get_game_record(id)
+
+# attach all names from training
+record = bind_rows(raw_record,
+                   games_train[0,])
+
+# bake using previously trained recipe
+baked_record = recipe_model %>%
+  prep(games_train, strings_as_factor = F) %>%
+  bake(record)
+         
+
+# predict
+pred_record = all_models %>%
+  filter(outcome_type != 'rating') %>%
+  select(username, outcome_type, glmnet_fit) %>%
+  #select(username, outcome_type, glmnet_fit, xgbTree_fit) %>%
+  mutate(glmnet_preds = map(glmnet_fit,
+                            ~ .x %>%
+                              predict(baked_record, type = 'prob') %>%
+                              rename(glmnet = .pred_1) %>%
+                              select(glmnet) %>%
+                              mutate(.row = row_number()))) %>%
+  # mutate(xgbTree_preds = map(xgbTree_fit,
+  #                            ~ .x %>%
+  #                              predict(baked_test, type = 'prob') %>%
+  #                              rename(xgbTree = .pred_1) %>%
+  #                              select(xgbTree) %>%
+  #                              mutate(.row = row_number()))) %>%
+  select(username, outcome_type, glmnet_preds) %>%
+ # select(username, outcome_type, glmnet_preds, xgbTree_preds) %>%
+  unnest() %>%
+  select(-one_of(".row1")) %>%
+  left_join(., baked_record %>%
+              mutate(.row = row_number()),
+            by = ".row") 
+  
+
+# now look at the prediction
+pred_record %>%
+  filter(outcome_type == 'own' | outcome_type == 'have_played') %>%
+  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type) %>%
+  mutate(method = "glmnet") %>%
+  spread(outcome_type, glmnet) %>%
+  mutate(game_id = as.character(game_id),
+         yearpublished = as.character(yearpublished)) %>%
+  rename(Method = method,
+         Published = yearpublished,
+         ID = game_id,
+         Game = name,
+         User = username) %>%
+  rename(`Pr(Own)` = own,
+         `Pr(Play)` = have_played) %>%
+  arrange(desc(`Pr(Own)`)) %>%
+    select(Method, Published, ID, Game, User, `Pr(Own)`, `Pr(Play)`) %>%
+      mutate_if(is.numeric, round, 2) %>%
+    flextable() %>%
+    flextable::autofit() %>%
+    bg(., j = c("`Pr(Own)`", "`Pr(Play)`"),
+       bg = col_func)
+# get the game
+raw_record = get_game_record(id)
+
+# attach all names from training
+record = bind_rows(raw_record,
+                   games_train[0,])
+
+# bake using previously trained recipe
+baked_record = recipe_model %>%
+  prep(games_train, strings_as_factor = F) %>%
+  bake(record)
+         
+
+# predict
+pred_record = all_models %>%
+  filter(outcome_type != 'rating') %>%
+  select(username, outcome_type, glmnet_fit) %>%
+  #select(username, outcome_type, glmnet_fit, xgbTree_fit) %>%
+  mutate(glmnet_preds = map(glmnet_fit,
+                            ~ .x %>%
+                              predict(baked_record, type = 'prob') %>%
+                              rename(glmnet = .pred_1) %>%
+                              select(glmnet) %>%
+                              mutate(.row = row_number()))) %>%
+  # mutate(xgbTree_preds = map(xgbTree_fit,
+  #                            ~ .x %>%
+  #                              predict(baked_test, type = 'prob') %>%
+  #                              rename(xgbTree = .pred_1) %>%
+  #                              select(xgbTree) %>%
+  #                              mutate(.row = row_number()))) %>%
+  select(username, outcome_type, glmnet_preds) %>%
+ # select(username, outcome_type, glmnet_preds, xgbTree_preds) %>%
+  unnest() %>%
+  select(-one_of(".row1")) %>%
+  left_join(., baked_record %>%
+              mutate(.row = row_number()),
+            by = ".row") 
+  
+
+# now look at the prediction
+pred_record %>%
+  filter(outcome_type == 'own' | outcome_type == 'have_played') %>%
+  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type) %>%
+  mutate(method = "glmnet") %>%
+  spread(outcome_type, glmnet) %>%
+  mutate(game_id = as.character(game_id),
+         yearpublished = as.character(yearpublished)) %>%
+  rename(Method = method,
+         Published = yearpublished,
+         ID = game_id,
+         Game = name,
+         User = username) %>%
+  rename(`Pr(Own)` = own,
+         `Pr(Play)` = have_played) %>%
+  arrange(desc(`Pr(Own)`)) %>%
+    select(Method, Published, ID, Game, User, `Pr(Own)`, `Pr(Play)`) %>%
+      mutate_if(is.numeric, round, 2) %>%
+    flextable() %>%
+    flextable::autofit() %>%
+    bg(., j = c("`Pr(Own)`", "`Pr(Play)`"),
+       bg = col_func)
+```
+
+```{r check another, warning=F}
+
+
+id =323612
+
+raw_record = get_game_record(id)
+
+# attach all names from training
+record = bind_rows(raw_record,
+                   games_train[0,])
+
+# bake using previously trained recipe
+baked_record = recipe_model %>%
+  prep(games_train, strings_as_factor = F) %>%
+  bake(record)
+         
+
+# predict
+pred_record = all_models %>%
+  filter(outcome_type != 'rating') %>%
+  select(username, outcome_type, glmnet_fit) %>%
+  #select(username, outcome_type, glmnet_fit, xgbTree_fit) %>%
+  mutate(glmnet_preds = map(glmnet_fit,
+                            ~ .x %>%
+                              predict(baked_record, type = 'prob') %>%
+                              rename(glmnet = .pred_1) %>%
+                              select(glmnet) %>%
+                              mutate(.row = row_number()))) %>%
+  # mutate(xgbTree_preds = map(xgbTree_fit,
+  #                            ~ .x %>%
+  #                              predict(baked_test, type = 'prob') %>%
+  #                              rename(xgbTree = .pred_1) %>%
+  #                              select(xgbTree) %>%
+  #                              mutate(.row = row_number()))) %>%
+  select(username, outcome_type, glmnet_preds) %>%
+ # select(username, outcome_type, glmnet_preds, xgbTree_preds) %>%
+  unnest() %>%
+  select(-one_of(".row1")) %>%
+  left_join(., baked_record %>%
+              mutate(.row = row_number()),
+            by = ".row") 
+  
+
+# now look at the prediction
+pred_record %>%
+  filter(outcome_type == 'own' | outcome_type == 'have_played') %>%
+  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type) %>%
+  mutate(method = "glmnet") %>%
+  spread(outcome_type, glmnet) %>%
+  mutate(game_id = as.character(game_id),
+         yearpublished = as.character(yearpublished)) %>%
+  rename(Method = method,
+         Published = yearpublished,
+         ID = game_id,
+         Game = name,
+         User = username) %>%
+  rename(`Pr(Own)` = own,
+         `Pr(Play)` = have_played) %>%
+  arrange(desc(`Pr(Own)`)) %>%
+    select(Method, Published, ID, Game, User, `Pr(Own)`, `Pr(Play)`) %>%
+      mutate_if(is.numeric, round, 2) %>%
+    flextable() %>%
+    flextable::autofit() %>%
+    bg(., j = c("`Pr(Own)`", "`Pr(Play)`"),
+       bg = col_func)
+# get the game
+raw_record = get_game_record(id)
+
+# attach all names from training
+record = bind_rows(raw_record,
+                   games_train[0,])
+
+# bake using previously trained recipe
+baked_record = recipe_model %>%
+  prep(games_train, strings_as_factor = F) %>%
+  bake(record)
+         
+
+# predict
+pred_record = all_models %>%
+  filter(outcome_type != 'rating') %>%
+  select(username, outcome_type, glmnet_fit) %>%
+  #select(username, outcome_type, glmnet_fit, xgbTree_fit) %>%
+  mutate(glmnet_preds = map(glmnet_fit,
+                            ~ .x %>%
+                              predict(baked_record, type = 'prob') %>%
+                              rename(glmnet = .pred_1) %>%
+                              select(glmnet) %>%
+                              mutate(.row = row_number()))) %>%
+  # mutate(xgbTree_preds = map(xgbTree_fit,
+  #                            ~ .x %>%
+  #                              predict(baked_test, type = 'prob') %>%
+  #                              rename(xgbTree = .pred_1) %>%
+  #                              select(xgbTree) %>%
+  #                              mutate(.row = row_number()))) %>%
+  select(username, outcome_type, glmnet_preds) %>%
+ # select(username, outcome_type, glmnet_preds, xgbTree_preds) %>%
+  unnest() %>%
+  select(-one_of(".row1")) %>%
+  left_join(., baked_record %>%
+              mutate(.row = row_number()),
+            by = ".row") 
+  
+
+# now look at the prediction
+pred_record %>%
+  filter(outcome_type == 'own' | outcome_type == 'have_played') %>%
+  select(game_id, yearpublished, game_id, name, username, glmnet, outcome_type) %>%
+  mutate(method = "glmnet") %>%
+  spread(outcome_type, glmnet) %>%
+  mutate(game_id = as.character(game_id),
+         yearpublished = as.character(yearpublished)) %>%
+  rename(Method = method,
+         Published = yearpublished,
+         ID = game_id,
+         Game = name,
+         User = username) %>%
+  rename(`Pr(Own)` = own,
+         `Pr(Play)` = have_played) %>%
+  arrange(desc(`Pr(Own)`)) %>%
+    select(Method, Published, ID, Game, User, `Pr(Own)`, `Pr(Play)`) %>%
+      mutate_if(is.numeric, round, 2) %>%
+    flextable() %>%
+    flextable::autofit() %>%
+    bg(., j = c("`Pr(Own)`", "`Pr(Play)`"),
+       bg = col_func)
+
+```
+
 
 ## Save Output
 
