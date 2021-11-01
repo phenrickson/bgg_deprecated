@@ -1,0 +1,814 @@
+---
+title: "Analyzing Individual BGG Users"
+author: Phil Henrickson
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+        toc: true
+        toc_depth: 3
+        keep_md: true
+params:
+  username: "mrbananagrabber"
+---
+
+```{r load and set packages, echo=F, warning=F, message=F,  results = 'hide'}
+
+knitr::opts_chunk$set(echo = F,
+                      dev="png",
+                      fig.width = 8,
+                      fig.height = 6)
+
+options(knitr.duplicate.label = "allow")
+
+options(scipen=999)
+
+source("load_packages.R")
+source("theme_phil.R")
+library(webshot2)
+library(magick)
+library(flextable)
+library(bggAnalytics)
+library(tidymodels)
+library(workflows)
+library(rsample)
+
+set_flextable_defaults(theme_fun = theme_booktabs,
+                       font.color = "grey10",
+  padding.bottom = 6, 
+  padding.top = 6,
+  padding.left = 6,
+  padding.right = 6,
+  background.color = "white")
+
+my_caption = list(labs(caption = paste(paste("Data from boardgamegeek.com as of", as.Date("2021-10-24")),
+                        paste("Data and analysis at github.com/phenrickson/bgg"), sep="\n")))
+
+```
+
+
+Load previously queried training and test data.
+
+```{r load previously stored data, warning=F, mesage=F, echo=F}
+
+train_data = load("/Users/Phil/OneDrive - AE Business Solutions/Documents/board_game_projects/samp_train_data.Rdata")
+test_data = load("/Users/Phil/OneDrive - AE Business Solutions/Documents/board_game_projects/samp_test_data.Rdata")
+
+```
+
+
+```{r functions, echo = F, warning=F, message=F}
+
+# get user collection
+get_user_collection = function(username) {
+        
+        # load bgg analytics
+        library(bggAnalytics)
+        
+        # load function for grabbing collections
+        source("functions/get_collection.R")
+        
+        # load collection
+        get_collection(username) %>%
+                        as_tibble()
+}
+
+# combine training data with collection data and bake
+bake_user_collection = function(train_data,
+                                test_data,
+                                collection_data) {
+        
+        # combine collection data with train data
+        training_and_collection_data = train_data %>%
+                left_join(., 
+                          collection_data %>%
+                                  mutate(have_played = case_when(own == 1 | prevowned == 1| !(is.na(rating)) ~ 1,
+                                                                 TRUE ~ 0)) %>%
+                                  mutate(have_owned = case_when(own == 1 | prevowned == 1 ~ 1,
+                                                                TRUE ~ 0)) %>%
+                                  select(game_id, own, have_owned, have_played, rating, username) %>%
+                                  pivot_wider(names_from = c("username"),
+                                              values_from = c("own", "have_played", "rating"),
+                                              values_fn = max,
+                                              id_cols = game_id) %>%
+                                  mutate_at(vars(starts_with("have_owned_")),
+                                            ~ replace_na(., 0)) %>%
+                                  mutate_at(vars(starts_with("own_")),
+                                            ~ replace_na(., 0)),
+                          by = c("game_id"))
+        
+        # create recipe 
+        recipe<- recipe(~ .,
+                        x = training_and_collection_data) %>%
+                update_role(all_numeric(),
+                            new_role = "predictor") %>%
+                update_role(timestamp,
+                            usersrated,
+                            game_id,
+                            name,
+                            average,
+                            baverage,
+                            new_role = "id") %>%
+                update_role(starts_with("have_owned"),
+                            starts_with("have_played"),
+                            starts_with("own_"),
+                            starts_with("rating_"),
+                            new_role = "id") %>%
+                step_filter(!is.na(yearpublished)) %>%
+                step_filter(
+                        cat_collectible_components !=1 &
+                                cat_expansion_for_basegame != 1) %>% # remove specific categories that count expansions
+                step_filter(yearpublished > 1950) %>%
+                step_mutate(published_prior_1900 = case_when(yearpublished<1900 ~ 1,
+                                                             TRUE ~ 0)) %>%
+                step_mutate(yearpublished = case_when(yearpublished <= 1900 ~ 1900,
+                                                      TRUE ~ as.numeric(yearpublished))) %>% # truncate yearpublished
+                # step_mutate(years_since_published = as.numeric(year(Sys.Date()))-yearpublished) %>%
+                step_impute_median(avgweight,
+                                   minplayers,
+                                   maxplayers,
+                                   playingtime,
+                                   minage) %>% # medianimpute numeric predictors
+                step_mutate(minplayers = case_when(minplayers < 1 ~ 1,
+                                                   minplayers > 10 ~ 10,
+                                                   TRUE ~ minplayers),
+                            maxplayers = case_when(maxplayers < 1 ~ minplayers,
+                                                   maxplayers > 20 ~ 20,
+                                                   TRUE ~ maxplayers)) %>% # truncate player range
+                step_mutate(time_per_player = playingtime/ maxplayers) %>% # make time per player variable
+                step_mutate_at(starts_with("cat_"),
+                               fn = ~ replace_na(., 0)) %>%
+                step_mutate_at(starts_with("mech_"),
+                               fn = ~ replace_na(., 0)) %>%
+                step_mutate_at(starts_with("des_"),
+                               fn = ~ replace_na(., 0)) %>%
+                step_mutate_at(starts_with("pub_"),
+                               fn = ~ replace_na(., 0)) %>%
+                step_mutate_at(starts_with("own_"),
+                               fn = ~ replace_na(., 0)) %>%
+                step_mutate_at(starts_with("have_owned_"),
+                               fn = ~ replace_na(., 0)) %>%
+                step_mutate_at(starts_with("have_played_"),
+                               fn = ~ replace_na(., 0)) %>%
+                step_mutate(number_mechanics = rowSums(across(starts_with("mech_"))),
+                            number_categories = rowSums(across(starts_with("cat_"))),
+                            number_designers = rowSums(across(starts_with("des_")))) %>%
+                step_log(playingtime,
+                         time_per_player,
+                         offset = 1) %>%
+                step_zv(all_predictors()) %>%
+                step_nzv(all_predictors(),
+                         freq_cut = 150/1)
+        
+        # bake training set
+        train_out = recipe %>%
+                prep(training_and_collection_data, strings_as_factor =F) %>%
+                bake(new_data = NULL)
+        
+        # combine test with collection data
+        test_and_collection_data = test_data %>%
+                left_join(., 
+                          collection_data %>%
+                                  mutate(have_played = case_when(own == 1 | prevowned == 1| !(is.na(rating)) ~ 1,
+                                                                 TRUE ~ 0)) %>%
+                                  mutate(have_owned = case_when(own == 1 | prevowned == 1 ~ 1,
+                                                                TRUE ~ 0)) %>%
+                                  select(game_id, own, have_owned, have_played, rating, username) %>%
+                                  pivot_wider(names_from = c("username"),
+                                              values_from = c("own", "have_played", "rating"),
+                                              values_fn = max,
+                                              id_cols = game_id) %>%
+                                  mutate_at(vars(starts_with("have_owned_")),
+                                            ~ replace_na(., 0)) %>%
+                                  mutate_at(vars(starts_with("own_")),
+                                            ~ replace_na(., 0)),
+                          by = c("game_id"))
+        
+        # bake test set
+        test_out = recipe %>%
+                prep(training_and_collection_data, strings_as_factor =F) %>%
+                bake(new_data = test_and_collection_data)
+        
+        # return baked training set
+        out = list("training" = train_out,
+                   "test" = test_out)
+        
+        return(out)
+        
+}
+
+# model off baked data
+model_user_collection = function(baked_data) {
+        
+        # get training set
+        baked_train = baked_data$training
+        
+        # get all vars
+        vars=names(baked_train %>%
+                           select(-starts_with("rating_"),
+                                  -starts_with("own_"),
+                                  -starts_with("have_played"),
+                                  -starts_with("have_owned")))
+        
+        # melt
+        melted_baked_train <- baked_train %>%
+                melt(., id.vars = vars) %>%
+                rename(outcome = value) %>%
+                mutate(outcome_type = case_when(grepl("have_owned_", variable) ~ 'have_owned',
+                                                grepl("own_", variable) ~ "own",
+                                                grepl("have_played", variable) ~ "have_played",
+                                                grepl("rating_", variable) ~ 'rating')) %>%
+                mutate(outcome = case_when((outcome_type == 'own' | outcome_type == 'have_owned') & is.na(outcome) ~ 0,
+                                           TRUE ~ outcome)) %>%
+                filter(!is.na(outcome)) %>%
+                mutate(username = gsub("have_played_","", gsub("own_", "", gsub("rating_", "", gsub("have_owned_", "", variable))))) %>%
+                select(username, outcome_type, outcome, variable, everything()) %>%
+                nest(-username, -outcome_type, -variable)
+        
+        
+        ### stuff needed for modeling
+        # penalized linear regression
+        glmnet_reg_mod<- 
+                linear_reg(penalty = tune::tune(),
+                           mixture = 0.5) %>%
+                set_engine("glmnet")
+        
+        # penalized logistic regression
+        glmnet_class_mod<- 
+                logistic_reg(penalty = tune::tune(),
+                             mixture = 0.5) %>%
+                set_engine("glmnet")
+        
+        # specify grid for tuning
+        glmnet_grid <- tibble(penalty = 10^seq(-4, -0.5, 
+                                               length.out = 30))
+        
+        # specify regression metrics
+        reg_metrics<-metric_set(yardstick::rmse,
+                                yardstick::rsq,
+                                yardstick::mae,
+                                yardstick::mape)
+        
+        # specify regression metrics
+        class_metrics<-metric_set(yardstick::roc_auc,
+                                  yardstick::mn_log_loss)
+        
+        ### stuff for running workflows
+        
+        # function for standard recipe
+        recipe_function = function(df, setting) {
+                
+                # change to factor if classification
+                if (setting == 'classification') {df$outcome = as.factor(df$outcome)}
+                else if (setting == 'regression') {df$outcome = df$outcome} 
+                else {'select classification or regression'}
+                
+                norm_recipe = recipe_train <-
+                        recipe(outcome ~ ., data = df) %>%
+                        update_role(timestamp,
+                                    usersrated,
+                                    game_id,
+                                    name,
+                                    average,
+                                    baverage,
+                                    new_role = "id") %>%
+                        step_zv(all_predictors()) %>%
+                        step_corr(all_predictors(),
+                                  threshold = 0.95) 
+        }
+        
+        # function for normalized recipe
+        norm_recipe_function = function(df, setting) {
+                
+                # change to factor if classification
+                if (setting == 'classification') {df$outcome = as.factor(df$outcome)}
+                else if (setting == 'regression') {df$outcome = df$outcome} 
+                else {'select classification or regression'}
+                
+                norm_recipe = recipe_train <-
+                        recipe(outcome ~ ., data = df) %>%
+                        update_role(timestamp,
+                                    usersrated,
+                                    game_id,
+                                    name,
+                                    average,
+                                    baverage,
+                                    new_role = "id") %>%
+                        step_zv(all_predictors()) %>%
+                        step_corr(all_predictors(),
+                                  threshold = 0.95) %>%
+                        step_normalize(all_predictors())
+                
+        }
+        
+        # function for fitting workflow using a selected model and recipe
+        fit_workflow_function <- function(df, input_model, input_recipe, metrics) {
+                
+                # change to factor if classification
+                if (metrics == 'classification') {df$outcome = as.factor(df$outcome)}
+                else if (metrics == 'regression') {df$outcome = df$outcome} 
+                else {'select classification or regression'}
+                
+                # fit model
+                fit_wf <-
+                        workflow() %>%
+                        add_model(input_model) %>%
+                        add_recipe(input_recipe) %>%
+                        fit(df)
+                
+                
+        }
+        
+        # function for tuning a workflow over folds
+        tune_workflow_function <- function(df, input_model, input_recipe, input_grid, metrics) {
+                
+                # change to factor if classification
+                if (metrics == 'classification') {df$outcome = as.factor(df$outcome)}
+                else if (metrics == 'regression') {df$outcome = df$outcome} 
+                else {'select classification or regression'}
+                
+                # create folds
+                set.seed(1999)
+                train_folds = vfold_cv(df,
+                                       strata = outcome,
+                                       v = 5,
+                                       repeats = 1)
+                
+                # if regression then
+                if (metrics == "regression") {
+                        fit_wf <-
+                                workflow() %>%
+                                add_model(input_model) %>%
+                                add_recipe(input_recipe) %>%
+                                tune_grid(train_folds,
+                                          grid = input_grid,
+                                          control = control_grid(save_pred = TRUE),
+                                          metrics = reg_metrics)
+                } else if (metrics == "classification") {
+                        fit_wf <-
+                                workflow() %>%
+                                add_model(input_model) %>%
+                                add_recipe(input_recipe) %>%
+                                tune_grid(train_folds,
+                                          grid = input_grid,
+                                          control = control_grid(save_pred = TRUE),
+                                          metrics = class_metrics)
+                } else {"select regression or classification"}
+                
+        }
+        
+        
+        ## for finalizing workflow
+        # function to finalize workflow using tune results
+        finalize_workflow_function<- function(df, input_model, input_recipe, tune_results, metrics) {
+                
+                # change to factor if classification
+                if (metrics == 'classification') {df$outcome = as.factor(df$outcome)}
+                else if (metrics == 'regression') {df$outcome = df$outcome} 
+                else {'select classification or regression'}
+                
+                #fit workflow on train data
+                fit_wf <-
+                        workflow() %>%
+                        add_model(input_model) %>%
+                        add_recipe(input_recipe)
+                
+                # finalize workflow
+                final_wf <-
+                        fit_wf %>%
+                        finalize_workflow(tune_results) %>%
+                        fit(df)
+                
+        }
+        
+        # ### fitting models
+        # set.seed(1999)
+        # # ratings
+        # ratings_models = melted_baked_train %>%
+        #         filter(outcome_type == 'rating') %>%
+        #         mutate(glmnet_tune = map(data,
+        #                                  ~ tune_workflow_function(df = .x,
+        #                                                           input_model = glmnet_reg_mod,
+        #                                                           input_grid = glmnet_grid,
+        #                                                           input_recipe = norm_recipe_function(.x, setting = 'regression'),
+        #                                                           metrics = 'regression'))) %>%
+        #         mutate(glmnet_best = map(glmnet_tune, ~ .x %>% show_best(n=1))) %>%
+        #         mutate(glmnet_results = map2(.x = glmnet_tune,
+        #                                      .y = glmnet_best,
+        #                                      ~ .x %>% collect_predictions(parameters = .y))) %>%
+        #         mutate(glmnet_fit = map2(.x=data,
+        #                                  .y = glmnet_best,
+        #                                  ~ finalize_workflow_function(df = .x,
+        #                                                               input_model = glmnet_reg_mod,
+        #                                                               tune_results = .y,
+        #                                                               input_recipe = norm_recipe_function(.x, setting = 'regression'),
+        #                                                               metrics = "regression"))) 
+        
+        set.seed(1999)
+        # have owned
+        have_owned_models = melted_baked_train %>%
+                filter(outcome_type == 'have_owned') %>%
+                mutate(glmnet_tune = map(data,
+                                         ~ tune_workflow_function(df = .x,
+                                                                  input_model = glmnet_class_mod,
+                                                                  input_grid = glmnet_grid,
+                                                                  input_recipe = norm_recipe_function(.x, setting = 'classification'),
+                                                                  metrics = 'classification'))) %>%
+                mutate(glmnet_best = map(glmnet_tune, ~ .x %>% show_best(n=1))) %>%
+                mutate(glmnet_results = map2(.x = glmnet_tune,
+                                             .y = glmnet_best,
+                                             ~ .x %>% collect_predictions(parameters = .y) %>%
+                                                     arrange(.row))) %>%
+                mutate(glmnet_fit = map2(.x=data,
+                                         .y = glmnet_best,
+                                         ~ finalize_workflow_function(df = .x,
+                                                                      input_model = glmnet_class_mod,
+                                                                      tune_results = .y,
+                                                                      input_recipe = norm_recipe_function(.x, setting = 'classification'),
+                                                                      metrics = "classification"))) 
+        
+        set.seed(1999)
+        # have played
+        have_played_models = melted_baked_train %>%
+                filter(outcome_type == 'have_played') %>%
+                mutate(glmnet_tune = map(data,
+                                         ~ tune_workflow_function(df = .x,
+                                                                  input_model = glmnet_class_mod,
+                                                                  input_grid = glmnet_grid,
+                                                                  input_recipe = norm_recipe_function(.x, setting = 'classification'),
+                                                                  metrics = 'classification'))) %>%
+                mutate(glmnet_best = map(glmnet_tune, ~ .x %>% show_best(n=1))) %>%
+                mutate(glmnet_results = map2(.x = glmnet_tune,
+                                             .y = glmnet_best,
+                                             ~ .x %>% collect_predictions(parameters = .y) %>%
+                                                     arrange(.row))) %>%
+                mutate(glmnet_fit = map2(.x=data,
+                                         .y = glmnet_best,
+                                         ~ finalize_workflow_function(df = .x,
+                                                                      input_model = glmnet_class_mod,
+                                                                      tune_results = .y,
+                                                                      input_recipe = norm_recipe_function(.x, setting = 'classification'),
+                                                                      metrics = "classification"))) 
+        set.seed(1999)
+        # own
+        own_models = melted_baked_train %>%
+                filter(outcome_type == 'own') %>%
+                mutate(glmnet_tune = map(data,
+                                         ~ tune_workflow_function(df = .x,
+                                                                  input_model = glmnet_class_mod,
+                                                                  input_grid = glmnet_grid,
+                                                                  input_recipe = norm_recipe_function(.x, setting = 'classification'),
+                                                                  metrics = 'classification'))) %>%
+                mutate(glmnet_best = map(glmnet_tune, ~ .x %>% show_best(n=1))) %>%
+                mutate(glmnet_results = map2(.x = glmnet_tune,
+                                             .y = glmnet_best,
+                                             ~ .x %>% collect_predictions(parameters = .y) %>%
+                                                     arrange(.row))) %>%
+                mutate(glmnet_fit = map2(.x=data,
+                                         .y = glmnet_best,
+                                         ~ finalize_workflow_function(df = .x,
+                                                                      input_model = glmnet_class_mod,
+                                                                      tune_results = .y,
+                                                                      input_recipe = norm_recipe_function(.x, setting = 'classification'),
+                                                                      metrics = "classification"))) 
+        
+        ### combine all models
+        all_models = bind_rows(
+                # ratings_models,
+                have_owned_models,
+                have_played_models,
+                own_models)
+        
+        return(all_models)
+        
+}
+
+# get coefficients
+model_coefs_user = function(models, effect_size) {
+        
+        # get coefs
+        training_coefs = models %>%
+                mutate(glmnet_coefs = map(glmnet_fit, ~ .x %>% extract_fit_parsnip() %>%
+                                                  tidy())) %>%
+                select(username, outcome_type, glmnet_coefs)
+        
+        # function for renaming
+        rename_func<-function(x) {
+                
+                x<-gsub("cat_memory", "cat_memory_game", x)
+                x<-gsub("cat_spiessecret_agents", "cat_spies_secret_agents", x)
+                x<-gsub("cat_","", x)
+                x<-gsub("mech_","", x)
+                x<-gsub("pub_","", x)
+                x<-gsub("des_","", x)
+                x<-gsub("avgweight", "Average Weight", x)
+                x<-gsub("yearpublished", "Year Published", x)
+                x<-gsub("minage", "Min Age", x)
+                x<-gsub("playingtime", "Playing Time", x)
+                x<-gsub("maxplayers", "Max Players", x)
+                x<-gsub("minplayers", "Min Players", x)
+                x<-gsub("_", " ", x)
+                
+                str_to_title(x)
+                
+        }
+        
+        # function for plotting
+        plot_coef_function <- function(coefs,
+                                       effect_size) {
+                # for me
+                coefs %>%
+                        unnest() %>%
+                        filter(term != '(Intercept)') %>%
+                        mutate(term = rename_func(term)) %>%
+                        filter(abs(estimate) > effect_size ) %>%
+                        ggplot(., aes(x= reorder(term, estimate),
+                                      shape = outcome_type,
+                                      color = outcome_type,
+                                      y = estimate))+
+                        geom_point(alpha=0.6)+
+                        coord_flip()+
+                        facet_wrap(username ~.)+
+                        #scale_color_grey(start = 0.2, end = 0.6)+
+                        scale_color_colorblind()+
+                        theme_phil()+
+                        theme(axis.text.y = element_text(size=rel(0.75)))+
+                        geom_hline(yintercept = 0,
+                                   linetype = 'dotted')+
+                        xlab("Feature")+
+                        ylab("Estimated Effect on Outcome")+
+                        labs(title = "What Predicts a Reviewer's Collection?",
+                             subtitle = str_wrap("Coefficients from penalized logistic regression models for a user's BGG Collection. Predictors centered and scaled. Models trained on all games published before 2020.", 90))+
+                        theme(panel.grid.minor = element_blank(),
+                              panel.grid.major = element_blank())+
+                        my_caption
+                
+        }
+        
+        # plot
+        return(plot_coef_function(training_coefs,
+                                  effect_size))
+        
+}
+
+# predict test set
+predict_test_user_collection = function(user_models,
+                                        baked_data) {
+                                        # predict off baked test data
+                                        
+                                        test_preds = user_models %>%
+                                                filter(outcome_type != 'rating') %>%
+                                                select(username, outcome_type, glmnet_fit) %>%
+                                                #select(username, outcome_type, glmnet_fit, xgbTree_fit) %>%
+                                                mutate(glmnet_preds = map(glmnet_fit,
+                                                                          ~ .x %>%
+                                                                                  predict(baked_test, type = 'prob') %>%
+                                                                                  rename(glmnet = .pred_1) %>%
+                                                                                  select(glmnet) %>%
+                                                                                  mutate(.row = row_number())))%>%
+                                                # mutate(xgbTree_preds = map(xgbTree_fit,
+                                                #                            ~ .x %>%
+                                                #                              predict(baked_test, type = 'prob') %>%
+                                                #                              rename(xgbTree = .pred_1) %>%
+                                                #                              select(xgbTree) %>%
+                                                #                              mutate(.row = row_number()))) %>%
+                                                select(username, outcome_type, glmnet_preds) %>%
+                                                # select(username, outcome_type, glmnet_preds, xgbTree_preds) %>%
+                                                unnest() %>%
+                                                select(-one_of(".row1")) %>%
+                                                left_join(., baked_data$test %>%
+                                                                  mutate(.row = row_number()),
+                                                          by = ".row") %>%
+                                                mutate(user_variable = paste(outcome_type, username, sep="_"))
+}
+
+# all in one go
+analyse_user = function(username,
+                        train_data,
+                        test_data) {
+        
+        # get collection
+        user_collection = get_user_collection(username)
+        
+        # bake with recipe and training
+        baked_user_collection = bake_user_collection(train_data = train_data,
+                                                     test_data = test_data,
+                                                     collection_data = user_collection)
+        
+        # train models
+        models_user = model_user_collection(baked_user_collection)
+        
+        # get coefs
+        coefs_user=model_coefs_user(models_user,
+                         effect_size = 0.03)
+        
+        # examine oos preds
+        oos_preds = models_user %>%
+                select(username, outcome_type, data, glmnet_results) %>% 
+                unnest() %>%
+                arrange(.row) %>%
+                select(username, yearpublished, outcome_type, game_id, name, outcome, .pred_1) %>%
+                rename(pred = .pred_1,
+                       actual = outcome) %>%
+                pivot_wider(., names_from = c("outcome_type"),
+                            values_from = c("pred", "actual")) %>%
+                mutate_if(is.numeric, round, 2) %>%
+                arrange(desc(pred_own)) %>%
+                mutate(game_id = as.character(game_id),
+                       yearpublished = as.character(yearpublished)) %>%
+                select(username, yearpublished, game_id, name, everything()) 
+        
+        # assess oos preds
+        oos_assess = models_user %>%
+                select(username, outcome_type, data, glmnet_results) %>% 
+                unnest() %>%
+                arrange(.row) %>%
+                select(username, yearpublished, outcome_type, game_id, name, outcome, .pred_1) %>% 
+                mutate(actual = factor(case_when(outcome == 1 ~ 'yes',
+                                                 TRUE ~ 'no'))) %>%
+                group_by(outcome_type) %>%
+                yardstick::roc_auc(truth = actual,
+                                   estimate = .pred_1,
+                                   event_level = "second") %>%
+                mutate_if(is.numeric, round, 3)
+        
+        # look at top 50 from oos
+        ft_oos = oos_preds %>%
+                head(50) %>%
+                flextable() %>%
+                flextable::autofit() %>%
+                bg(., i = ~ actual_own == 1,
+                   bg = 'deepskyblue1')
+        
+        
+        # predict off baked test data
+        test_preds = models_user %>%
+                filter(outcome_type != 'rating') %>%
+                select(username, outcome_type, glmnet_fit) %>%
+                #select(username, outcome_type, glmnet_fit, xgbTree_fit) %>%
+                mutate(glmnet_preds = map(glmnet_fit,
+                                          ~ .x %>%
+                                                  predict(baked_user_collection$test, type = 'prob') %>%
+                                                  rename(glmnet = .pred_1) %>%
+                                                  select(glmnet) %>%
+                                                  mutate(.row = row_number())))%>%
+                # mutate(xgbTree_preds = map(xgbTree_fit,
+                #                            ~ .x %>%
+                #                              predict(baked_test, type = 'prob') %>%
+                #                              rename(xgbTree = .pred_1) %>%
+                #                              select(xgbTree) %>%
+                #                              mutate(.row = row_number()))) %>%
+                select(username, outcome_type, glmnet_preds) %>%
+                # select(username, outcome_type, glmnet_preds, xgbTree_preds) %>%
+                unnest() %>%
+                select(-one_of(".row1")) %>%
+                left_join(., baked_user_collection$test %>%
+                                  mutate(.row = row_number()),
+                          by = ".row") %>%
+                mutate(user_variable = paste(outcome_type, username, sep="_"))
+        
+        # table
+        ft_preds = test_preds %>%
+                filter(yearpublished < 2023) %>%
+                select(username, yearpublished, outcome_type, game_id, name, glmnet) %>%
+                spread(outcome_type, glmnet) %>%
+                arrange(own) %>%
+                mutate_if(is.numeric, round, 2) %>%
+                group_by(yearpublished) %>%
+                slice_max(., 
+                          order_by = have_played,
+                          n=5,
+                          with_ties = T) %>%
+                mutate(game_id = as.character(game_id),
+                       yearpublished = as.character(yearpublished)) %>%
+                select(username, yearpublished, game_id, name, everything()) %>%
+                head(50) %>%
+                flextable() %>%
+                flextable::autofit()
+        
+        
+        # get list of output
+        out = list("username" = username,
+                   "baked_data" = baked_user_collection,
+                   "models" = models_user,
+                   "coefs" = coefs_user,
+                   "oos" = oos_preds,
+                   "oos_table" = ft_oos,
+                   "oos_assessment" = oos_assess,
+                   "preds" = test_preds,
+                   "preds_table" = ft_preds)
+        
+        return(out)
+        
+        
+}
+
+```
+
+
+Fit models and analyze collection for `r params$username`.
+
+```{r use function, echo=F, warning=F, message=F}
+
+#use all in one go
+foo = analyse_user(params$username,
+                   train_data = samp_train_data,
+                   test_data = samp_test_data)
+
+```
+
+## Games in Collection
+
+How many games has the user owned/played in the training set (games prior to 2020)?
+
+```{r get to know collection, echo=F, warning=F, message=F}
+
+temp_own = paste("own", params$username, sep="_")
+temp_own2 = rlang::sym(temp_own)
+
+temp_rating = paste("rating", params$username, sep="_")
+temp_rating2 = rlang::sym(temp_rating)
+
+foo$baked$training %>%
+        mutate(username = params$username) %>%
+        mutate(own = !! temp_own2) %>% 
+        mutate(rated = case_when(is.na(!!temp_rating2) ~ 0,
+                                 TRUE ~ 1)) %>%
+        group_by(username) %>%
+        summarize(games_owned = sum(own,na.rm=T),
+                  games_played = sum(rated, na.rm=T))
+
+rm(temp_own,
+   temp_own2,
+   temp_rating,
+   temp_rating2)
+
+```
+
+## Coefficients for User
+
+Examine coefficients from the trained model.
+
+```{r plot coefficients, echo=F, warning=F, message=F, fig.height=9, fig.width=10}
+
+foo$coefs
+
+```
+
+## Separation Plot and Assessment
+
+Examine separation plot for training set (cross validated predictions).
+
+```{r separation plot for training set, echo=F, warning=F, message=F, fig.height=6, fig.width=10}
+
+foo$oos %>%
+        arrange(pred_own) %>%
+        mutate(rank = row_number()) %>%
+        ggplot(., aes(x=rank,
+                      y=pred_own))+
+        geom_vline(data = foo$oos %>%
+                          arrange(pred_own) %>%
+                          mutate(rank = row_number()) %>%
+                          filter(actual_own == 1),
+                   aes(xintercept = rank),
+                  col='deepskyblue1')+
+        geom_point(alpha=0.75,size=0.5)+
+        facet_wrap(username~.)+
+        theme_phil()+
+        xlab("Game Rank (Lowest to Highest)")+
+        ylab("Pr(Game in Collection)")+
+        labs(title = paste("Separation Plot"),
+             subtitle = str_wrap("Displaying cross validated probabilities for all games in the training set from least likely to most likely. Vertical blue lines indicate game was actually in the user's collection.", 125))+
+        my_caption
+
+```
+
+Formally assess how well the model did in resampling.
+
+```{r assess models in oos, echo=F, warning=F, message=F}
+
+foo$oos_assessment
+
+```
+
+## Predicted Games in Collection through 2019
+
+Examine top games from resampling.
+
+```{r top games from oos, echo=F, warning=F, message=F}
+
+foo$oos_table
+
+```
+
+## Predicted Games in Collection 2020-2022
+
+Examine the top games for 2020-2022.
+
+```{r top games from preds, echo=F, warning=F, message=F}
+
+foo$preds_table
+
+```
+
+
+
