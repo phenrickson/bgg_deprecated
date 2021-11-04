@@ -5,12 +5,16 @@ library(tidyverse)
 library(magrittr)
 library(odbc)
 library(splitstackshape)
+library(keyring)
 
 # load bgg analytics
 library(bggAnalytics)
 
 # load big query
 library(bigrquery)
+
+#
+bq_auth(email = "phil.henrickson@aebs.com")
 
 # get game ids from most recent day
 # source function for reading data 
