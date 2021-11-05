@@ -1,0 +1,159 @@
+---
+title: What would the BGG Geek list look like if games were all published in the same year?
+output:
+  html_document:
+    df_print: paged
+---
+
+Using our model previously trained to predict the geek rating (using games published through 2019), what would happen if we predicted all games under the assunmption that they were released in the same year? I arbitrarily set 2015 as the year of release for all games, then ran them through the previously trained models.
+
+Date of Predictions: `r Sys.Date()`
+
+```{r load and set packages, echo=F, warning=F, message=F, include=FALSE, results = 'hide'}
+
+source("load_packages.R")
+source("theme_phil.R")
+library(webshot2)
+
+```
+
+```{r flextable settings, echo=F, warning=F, message=F}
+
+library(magick)
+library(flextable)
+set_flextable_defaults(theme_fun = theme_booktabs,
+                       font.color = "grey10",
+  padding.bottom = 6, 
+  padding.top = 6,
+  padding.left = 6,
+  padding.right = 6,
+  background.color = "white")
+
+```
+
+```{r global seetings, echo=F, warning=F, message=F}
+
+knitr::opts_chunk$set(echo = F,
+                      dev="png",
+                      fig.width = 9,
+                      fig.height = 6)
+
+options(knitr.duplicate.label = "allow")
+
+options(scipen=999)
+
+```
+
+```{r load table}
+
+load("hypothetical_geeklist.Rdata")
+load("hypothetical_dat.Rdata")
+
+```
+
+# Predicted Geek List - Datatable
+
+```{r dt table, warning=F, message=F}
+library(DT)
+
+foo = hypothetical_preds %>%
+  select(outcome_type, contains("preds")) %>%
+  unnest() %>%
+  bind_cols(., hypothetical_dat %>%
+              select(-outcome_type)) %>%
+  mutate(mean = (stan_lm + glmnet + ranger + xgbTree)/4) %>%
+  arrange(desc(outcome)) %>%
+  mutate(current = row_number()) %>%
+  arrange(desc(mean)) %>%
+  mutate(pred_rank = row_number()) %>%
+  mutate(yearpublished = as.character(actual_yearpublished),
+         game_id = as.character(game_id)) %>%
+  mutate(today = Sys.Date()) %>%
+  select(today, game_id, name, yearpublished, outcome, current, pred_rank, outcome, mean, stan_lm, glmnet, ranger, xgbTree) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  rename(GeekRating = outcome,
+         GeekRank = current,
+         Today = today,
+         ID = game_id,
+         Game = name,
+         Published = yearpublished,
+         ModelRank = pred_rank,
+         ModelRating = mean) %>%
+  select(ID, Game, GeekRating, GeekRank, ModelRank, ModelRating)
+
+
+datatable(foo)
+
+```
+
+
+# Predicted Geek List - Heat Table
+
+```{r now create a table for all games, warning=F, message=F}
+
+quantile_func1 = function(x) {
+  
+  breaks<-quantile(x, probs = seq(0, 1, by=.05), na.rm=T) %>% as.vector()
+#  breaks = weight_deciles
+  colorRamp=colorRampPalette(c("red", "white", "deepskyblue1"))
+  col_palette <- colorRamp(length(breaks))
+  mycut <- cut(x, 
+    breaks = breaks,
+    include.lowest = TRUE, 
+    right=T,
+    label = FALSE)
+  col_palette[mycut]
+  
+}
+
+quantile_func2 = function(x) {
+  
+  breaks<-quantile(x, probs = seq(0,1, by=.05), na.rm=T) %>% as.vector()
+#  breaks = weight_deciles
+  colorRamp=colorRampPalette(c("deepskyblue1", "white", "red"))
+  col_palette <- colorRamp(length(breaks))
+  mycut <- cut(x, 
+    breaks = breaks,
+    include.lowest = TRUE, 
+    right=T,
+    label = FALSE)
+  col_palette[mycut]
+
+}
+
+hypothetical_preds %>%
+  select(outcome_type, contains("preds")) %>%
+  unnest() %>%
+  bind_cols(., hypothetical_dat %>%
+              select(-outcome_type)) %>%
+  mutate(mean = (stan_lm + glmnet + ranger + xgbTree)/4) %>%
+  arrange(desc(outcome)) %>%
+  mutate(current = row_number()) %>%
+  arrange(desc(mean)) %>%
+  mutate(pred_rank = row_number()) %>%
+  mutate(yearpublished = as.character(actual_yearpublished),
+         game_id = as.character(game_id)) %>%
+  mutate(today = Sys.Date()) %>%
+  select(today, game_id, name, yearpublished, outcome, current, pred_rank, outcome, mean, stan_lm, glmnet, ranger, xgbTree) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  rename(GeekRating = outcome,
+         GeekRank = current,
+         Today = today,
+         ID = game_id,
+         Game = name,
+         Published = yearpublished,
+         ModelRank = pred_rank,
+         ModelRating = mean) %>%
+  select(ID, Game, Published, GeekRating, GeekRank, ModelRank, ModelRating, stan_lm, glmnet, ranger, xgbTree) %>%
+  flextable() %>%
+  flextable::autofit() %>%
+  bg(., j = c("GeekRating", "ModelRating", "stan_lm", "glmnet", "ranger", "xgbTree"),
+     bg = quantile_func1) %>%
+  set_caption(., caption = "Predicted Geek Rating for All Games If Published in Same Year") %>%
+  bg(., j=c("GeekRank", "ModelRank"),
+     bg = quantile_func2)
+
+
+```
+
+
