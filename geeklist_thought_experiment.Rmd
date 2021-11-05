@@ -5,7 +5,7 @@ output:
     df_print: paged
 ---
 
-Using our model previously trained to predict the geek rating (using games published through 2019), what would happen if we predicted all games under the assunmption that they were released in the same year? I arbitrarily set 2015 as the year of release for all games, then ran them through the previously trained models.
+Using our model previously trained to predict the geek rating (using games published through 2019), what would happen if we predicted all games under the assumption that they were released in the same year? I arbitrarily set 2015 as the year of release for all games, then ran them through the previously trained models.
 
 Date of Predictions: `r Sys.Date()`
 
