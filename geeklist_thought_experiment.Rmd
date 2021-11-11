@@ -29,6 +29,9 @@ set_flextable_defaults(theme_fun = theme_booktabs,
   padding.right = 6,
   background.color = "white")
 
+# create caption for plots
+my_caption = list(labs(caption = paste(paste("Data from boardgamegeek.com as of", Sys.Date()),
+                        paste("Data and analysis at github.com/phenrickson/bgg"), sep="\n")))
 ```
 
 ```{r global seetings, echo=F, warning=F, message=F}
@@ -51,7 +54,55 @@ load("hypothetical_dat.Rdata")
 
 ```
 
-# Predicted Geek List - Datatable
+## Predicted Geek List vs Actual Geek List
+
+```{r get predicted vs plot in plot, fig.height=10, fig.width=10}
+
+hypothetical_preds %>%
+  select(outcome_type, contains("preds")) %>%
+  unnest() %>%
+  bind_cols(., hypothetical_dat %>%
+              select(-outcome_type)) %>%
+  mutate(mean = (stan_lm + glmnet + ranger + xgbTree)/4) %>%
+  arrange(desc(outcome)) %>%
+  mutate(current = row_number()) %>%
+  arrange(desc(mean)) %>%
+  mutate(pred_rank = row_number()) %>%
+  mutate(yearpublished = as.character(actual_yearpublished),
+         game_id = as.character(game_id)) %>%
+  mutate(today = Sys.Date()) %>%
+  select(today, game_id, name, yearpublished, outcome, current, pred_rank, outcome, mean, stan_lm, glmnet, ranger, xgbTree) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  rename(GeekRating = outcome,
+         GeekRank = current,
+         Today = today,
+         ID = game_id,
+         Game = name,
+         Published = yearpublished,
+         ModelRank = pred_rank,
+         ModelRating = mean) %>%
+  select(ID, Game, GeekRating, GeekRank, ModelRank, ModelRating) %>%
+  mutate(diff = GeekRating - ModelRating) %>%
+  ggplot(., aes(x=ModelRating,
+                label = Game,
+                color = diff,
+                y=GeekRating))+
+  geom_point(alpha=0.5)+
+  geom_text(check_overlap = T,
+                   size=2)+
+  theme_phil()+
+  theme(legend.text = element_text(),
+        legend.title = element_text())+
+  my_caption+
+  scale_color_gradient2_tableau(palette = 'Green-Blue Diverging')+
+  guides(color = guide_colorbar(barwidth=10,
+                                barheight=0.5,
+                                title.position = 'top',
+                                title = 'Model Likes        BGG Likes'))
+
+```
+
+## Predicted Geek List - Interactive Table
 
 ```{r dt table, warning=F, message=F}
 library(DT)
@@ -79,7 +130,7 @@ foo = hypothetical_preds %>%
          Published = yearpublished,
          ModelRank = pred_rank,
          ModelRating = mean) %>%
-  select(ID, Game, GeekRating, GeekRank, ModelRank, ModelRating)
+  select(ID, Game, GeekRank, GeekRating, ModelRank, ModelRating)
 
 
 datatable(foo)
@@ -87,7 +138,9 @@ datatable(foo)
 ```
 
 
-# Predicted Geek List - Heat Table
+
+
+## Predicted Geek List - Heat Table
 
 ```{r now create a table for all games, warning=F, message=F}
 
