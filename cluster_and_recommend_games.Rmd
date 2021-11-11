@@ -1,0 +1,995 @@
+---
+title: "Game Clusters and Nearest Neighbors"
+author: "Phil Henrickson"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document:
+    keep_md: yes
+---
+
+This notebook is for building predictive models of boardgame ratings.
+
+```{r global seetings, echo=F, warning=F, message=F}
+
+knitr::opts_chunk$set(echo = F,
+                      dev="png",
+                      fig.width = 8,
+                      fig.height = 8)
+
+options(knitr.duplicate.label = "allow")
+
+options(scipen=999)
+
+```
+
+```{r load and set packages, warning=F, message=F, include=FALSE, results = 'hide'}
+
+source("load_packages.R")
+source("theme_phil.R")
+
+```
+
+## Connect to Big Query
+
+### Active Game Rankings
+
+We'll first connect to the most recent day of BGG data that we have in our database. These are the active rankings of games - where they stand in the BGG database as of the most recent load, which I usually update once a week.
+
+This notebook is for building predictive models of the boardgamegeek community's average and geek ratings.
+
+```{r global settings, echo=F, warning=F, message=F}
+
+knitr::opts_chunk$set(echo = F,
+                      dev="png",
+                      fig.width = 9,
+                      fig.height = 6)
+
+options(knitr.duplicate.label = "allow")
+
+options(scipen=999)
+
+source("load_packages.R")
+source("theme_phil.R")
+```
+
+```{r flextable settings, echo=F, warning=F, message=F}
+
+library(webshot)
+library(flextable)
+set_flextable_defaults(theme_fun = theme_booktabs,
+                       font.color = "grey10",
+  padding.bottom = 6, 
+  padding.top = 6,
+  padding.left = 6,
+  padding.right = 6,
+  background.color = "white")
+
+```
+
+## Connect to Big Query
+
+### Active Game Rankings
+
+We'll first connect to the most recent day of BGG data that we have in our database. These are the active rankings of games - where they stand in the BGG database as of the most recent load, which I usually update once a week.
+
+```{r connect to big query}
+
+library(bigrquery)
+
+# get project credentials
+PROJECT_ID <- "gcp-analytics-326219"
+BUCKET_NAME <- "test-bucket"
+
+# authorize
+bq_auth(email = "phil.henrickson@aebs.com")
+
+# establish connection
+bigquerycon<-dbConnect(
+        bigrquery::bigquery(),
+        project = PROJECT_ID,
+        dataset = "bgg"
+)
+
+# query table
+active_games<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT * FROM bgg.active_games_daily')
+
+# create caption for plots
+my_caption = list(labs(caption = paste(paste("Data from boardgamegeek.com as of", max(as.Date(active_games$timestamp))),
+                        paste("Data and analysis at github.com/phenrickson/bgg"), sep="\n")))
+
+```
+
+### Additional Game Information
+
+We also want to pull down other tables containing the information that we know about games.
+
+```{r query tables with game information}
+
+# general game info
+games_info<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT * FROM bgg.active_games_info')
+
+# game categories
+game_categories<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT 
+                              a.game_id,
+                              b.category_id,
+                              b.category
+                              FROM bgg.game_categories a
+                               LEFT JOIN bgg.category_ids b 
+                               ON a.category_id = b.category_id')
+
+# game mechanics
+game_mechanics<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT 
+                              a.game_id,
+                              b.mechanic_id,
+                              b.mechanic
+                              FROM bgg.game_mechanics a
+                               LEFT JOIN bgg.mechanic_ids b 
+                               ON a.mechanic_id = b.mechanic_id')
+
+# game publishers
+game_publishers<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT 
+                              a.game_id,
+                              b.publisher_id,
+                              b.publisher
+                              FROM bgg.game_publishers a
+                               LEFT JOIN bgg.publisher_ids b 
+                               ON a.publisher_id = b.publisher_id')
+
+# game designers
+game_designers<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT 
+                              a.game_id,
+                              b.designer_id,
+                              b.designer
+                              FROM bgg.game_designers a
+                               LEFT JOIN bgg.designer_ids b 
+                               ON a.designer_id = b.designer_id')
+
+# game artists
+game_artists<-DBI::dbGetQuery(bigquerycon, 
+                              'SELECT 
+                              a.game_id,
+                              b.artist_id,
+                              b.artist
+                              FROM bgg.game_artists a
+                               LEFT JOIN bgg.artist_ids b 
+                               ON a.artist_id = b.artist_id')
+
+```
+
+### Create Dataset
+
+```{r create dataset function, warning=F, message=F}
+
+# function for creating training and test sets
+source("functions/combine_and_split_bgg_datasets.R")
+
+```
+
+We'll assemble our training dataset to start, meaning we will start with games published before 2020 and then pull in the other datasets to create features at the game level.
+
+```{r use function to create training set}
+
+# publisher list
+publisher_list = c(51,
+                   1027,
+                   21847,
+                   10,
+                   1001,
+                   512,
+                   4,
+                   157,
+                   34,
+                   28,
+                   10001,
+                   39,
+                   37,
+                   20,
+                   3,
+                   538,
+                   52,
+                   8923,
+                   17,
+                   5,
+                   3320,
+                   597,
+                   5400,
+                   26,
+                   47,
+                   11652,
+                   19,
+                   13,
+                   12024,
+                   10754,
+                   21608,
+                   108,
+                   221,
+                   171,
+                   93,
+                   25842,
+                   28072)
+
+# top designers and artists
+min_games = 20
+
+# rank designers with min games
+top_designers = active_games %>%
+  filter(yearpublished < 2020) %>%
+  left_join(., game_designers,
+            by = "game_id") %>%
+  select(timestamp, game_id, name, designer_id, designer, everything()) %>%
+  filter(!is.na(designer)) %>%
+  #filter(designer_id %in% top_designers$designer_id) %>%
+  group_by(designer_id, designer) %>%
+  summarize(median_rating = median(baverage),
+         n_games = n_distinct(game_id),
+         .groups = 'drop') %>%
+        filter(n_games > min_games) %>%
+        arrange(desc(median_rating)) %>%
+        mutate(rank = row_number())
+
+# top artists
+top_artists = active_games %>%
+  filter(yearpublished < 2020) %>%
+  left_join(., game_artists,
+            by = "game_id") %>%
+  select(timestamp, game_id, name, artist_id, artist, everything()) %>%
+  filter(!is.na(artist)) %>%
+  #filter(artist_id %in% top_artists$artist_id) %>%
+  group_by(artist_id, artist) %>%
+  summarize(median_rating = median(baverage),
+         n_games = n_distinct(game_id),
+         .groups = 'drop') %>%
+        filter(n_games > min_games) %>%
+        arrange(desc(median_rating)) %>%
+        mutate(rank = row_number())
+
+```
+
+### Create Dataset
+
+We'll assemble our training dataset to start, meaning we will start with games published before 2020 and then pull in the other datasets to create features at the game level.
+                                        
+```{r use function to create training set}
+
+games_datasets= combine_and_split_bgg_datasets(datasets_list = list("active_games" = active_games,
+"game_categories" = game_categories,
+                                        "game_designers" = game_designers,
+                                        "game_mechanics" = game_mechanics,
+                                        "game_publishers" = game_publishers,
+                                        "game_artists" = game_artists),
+                        min_users = 200,
+                        year_split = 2020,
+                        publisher_list = publisher_list,
+                        top_designers = top_designers,
+                        top_artists = top_artists)
+
+# use the training set
+games_train = games_datasets$train 
+games_test = games_datasets$test
+```
+
+### Recipes and Workflows
+
+#### Modeling Recipes
+
+We'll now create a recipe prepping and normalizing our data for clustering/PCA.
+`   
+```{r recipe for ratings}
+
+recipe_prep<- recipe(~ .,
+                    x = games_train) %>%
+  update_role(all_numeric(),
+              new_role = "predictor") %>%
+  update_role(timestamp,
+              yearpublished,
+                usersrated,
+                game_id,
+                name,
+                average,
+                baverage,
+                new_role = "id") %>%
+  step_filter(!is.na(yearpublished)) %>%
+  step_filter(cat_collectible_components !=1 &
+              cat_expansion_for_basegame != 1) %>% # remove specific categories that count expansions
+#  step_filter(yearpublished > 1900) %>%
+  # step_mutate(published_prior_1900 = case_when(yearpublished<1900 ~ 1,
+  #                                              TRUE ~ 0)) %>%
+  # step_mutate(yearpublished = case_when(yearpublished <= 1900 ~ 1900,
+  #                                              TRUE ~ as.numeric(yearpublished))) %>% # truncate yearpublished
+ # step_mutate(years_since_published = as.numeric(year(Sys.Date()))-yearpublished) %>%
+  step_impute_median(avgweight,
+                            minplayers,
+                            maxplayers,
+                            playingtime,
+                            minage) %>% # medianimpute numeric predictors
+  step_mutate(minplayers = case_when(minplayers < 1 ~ 1,
+                                             minplayers > 10 ~ 10, # truncate
+                                             TRUE ~ minplayers),
+              maxplayers = case_when(maxplayers < 1 ~ minplayers,
+                                             maxplayers > 20 ~ 20,
+                                             TRUE ~ maxplayers)) %>% # truncate player range
+  step_mutate(time_per_player = playingtime/ maxplayers) %>% # make time per player variable
+  step_mutate_at(starts_with("cat_"),
+                   fn = ~ replace_na(., 0)) %>%
+  step_mutate_at(starts_with("mech_"),
+                   fn = ~ replace_na(., 0)) %>%
+  step_mutate_at(starts_with("des_"),
+                   fn = ~ replace_na(., 0)) %>%
+  step_mutate_at(starts_with("art_"),
+                   fn = ~ replace_na(., 0)) %>%
+  step_rm(starts_with("art_"),
+          starts_with("pub_")) %>%
+  step_mutate(number_mechanics = rowSums(across(starts_with("mech_"))),
+              number_categories = rowSums(across(starts_with("cat_")))) %>%
+  step_log(playingtime,
+           time_per_player,
+           offset = 1) %>%
+  step_zv(all_predictors()) %>%
+  step_nzv(all_predictors(),
+           freq_cut = 150/1)
+
+# normalize
+recipe_norm_prep<-recipe_prep %>%
+#  step_poly(number_mechanics, degree = 2) %>%
+  step_normalize(all_predictors())
+  
+
+# summary of recipe
+summary(recipe_prep)
+
+```
+
+### Set Up
+
+We'll now bake and get our dataset at the nested level.
+
+
+```{r bake melt and nest, warning=F, message=F}
+
+# bake
+baked_train = recipe_prep %>%
+        prep(games_train, strings_as_factor = F) %>%
+        bake(new_data = NULL) 
+
+# create two datasets
+nested_train_data<- baked_train %>%
+  mutate(dataset = "info, categories, mechanics, and designers") %>%
+  nest(-dataset) %>%
+  bind_rows(., baked_train %>%
+              mutate(dataset = "info, mechanics, and designers") %>%
+              select(-starts_with("cat_"),
+                     -number_categories) %>%
+              nest(-dataset))
+
+```
+
+#### Function and Workflow
+
+Next is just setting up a bunch of functions for fitting PCA and clustering to these nested datasets, doing so inside of recipes.
+
+```{r pca and cluster recipes}
+
+# function for standard recipe
+pca_recipe= function(df) {
+
+  recipe = recipe(~.,
+                  data = df) %>%
+   update_role(timestamp,
+              yearpublished,
+                usersrated,
+                game_id,
+                name,
+                average,
+                baverage,
+                new_role = "id") %>%
+    step_normalize(all_numeric_predictors()) %>%
+    step_pca(all_numeric_predictors(), id = "pca",
+             num_comp = 1000) %>% 
+    prep(strings_as_factor=F)
+    
+}
+
+norm_recipe= function(df) {
+
+  recipe = recipe(~.,
+                  data = df) %>%
+   update_role(timestamp,
+              yearpublished,
+                usersrated,
+                game_id,
+                name,
+                average,
+                baverage,
+                new_role = "id") %>%
+    step_normalize(all_numeric_predictors()) %>%
+    prep(strings_as_factor=F)
+    
+}
+
+
+```
+
+We'll now fit the pca on the training set, then extract various quantities from it.
+
+```{r train pca}
+
+set.seed(1999)
+bar = nested_train_data %>%
+  mutate(pca_trained = map(data, ~ pca_recipe(.x))) %>%
+  mutate(pca_components = map(pca_trained, ~ .x %>% tidy(id = "pca"))) %>%
+  mutate(pca_variance = map(pca_trained, ~ .x %>% tidy(id="pca", type = "variance"))) %>%
+  mutate(pca_rotation = map(pca_trained, ~ .x %>% juice())) %>%
+  mutate(pca_dist = map(pca_rotation, 
+                        ~ dist(.x %>%
+                                 select(-timestamp,
+                                        -game_id,
+                                        -average,
+                                        -baverage,
+                                        -usersrated,
+                                        -yearpublished,
+                                        -name) %>%
+                                 as.matrix(), method="euclidean") %>%
+                             as.matrix() %>%
+                             as.data.frame()))
+
+  # mutate(pca_bake = map(pca_recipe, ~ .x %>% 
+  #                         prep(data, strings_as_factor = F) %>%
+  #                         bake(new_data = NULL)))
+
+```
+
+For instance, we can plot each variable's contributions to the first two components.
+
+```{r pca contributions, fig.height=8, fig.width=8, warning=F, message=F}
+
+# function for cleaning up variable names
+rename_func<-function(x) {
+  
+  x<-gsub("cat_memory", "cat_memory_game", x)
+  x<-gsub("cat_spiessecret_agents", "cat_spies_secret_agents", x)
+  x<-gsub("cat_","", x)
+  x<-gsub("mech_","", x)
+  x<-gsub("pub_","", x)
+  x<-gsub("des_","", x)
+  x<-gsub("avgweight", "Average Weight", x)
+  x<-gsub("yearpublished", "Year Published", x)
+  x<-gsub("minage", "Min Age", x)
+  x<-gsub("playingtime", "Playing Time", x)
+  x<-gsub("maxplayers", "Max Players", x)
+  x<-gsub("minplayers", "Min Players", x)
+  x<-gsub("_", " ", x)
+
+  str_to_title(x)
+
+}
+
+# plot for each
+bar %>% 
+  select(dataset, pca_components) %>%
+  unnest() %>%
+  filter(dataset == 'info, mechanics, and designers') %>%
+  filter(component == 'PC1' | component == 'PC2' | component == 'PC3' | component == 'PC4') %>%
+  group_by(dataset, component) %>%
+  slice_max(., order_by = abs(value),
+            n = 25) %>%
+  mutate(terms = rename_func(terms)) %>%
+  ggplot(., aes(x=value,
+                fill = value,
+                y = reorder_within(terms, by =value, within = component)))+
+  geom_col()+
+  scale_y_reordered()+
+  facet_wrap(dataset ~ component,
+             ncol =2,
+             scales = "free_y")+
+  theme_phil()+
+  my_caption+
+  scale_fill_gradient2_tableau()+
+  ylab("feature")+
+  xlab("contribution")+
+  guides(fill = guide_colorbar(barwidth = 10))
+
+
+# plot for each
+bar %>% 
+  select(dataset, pca_components) %>%
+  unnest() %>%
+  filter(dataset != 'info, mechanics, and designers') %>%
+  filter(component == 'PC1' | component == 'PC2' | component == 'PC3' | component == 'PC4') %>%
+  group_by(dataset, component) %>%
+  slice_max(., order_by = abs(value),
+            n = 25) %>%
+  mutate(terms = rename_func(terms)) %>%
+  ggplot(., aes(x=value,
+                fill = value,
+                y = reorder_within(terms, by =value, within = component)))+
+  geom_col()+
+  scale_y_reordered()+
+  facet_wrap(dataset ~ component,
+             ncol =2,
+             scales = "free_y")+
+  theme_phil()+
+  my_caption+
+  scale_fill_gradient2_tableau()+
+  ylab("feature")+
+  xlab("contribution")+
+  guides(fill = guide_colorbar(barwidth = 10))
+  
+  
+
+```
+
+We can also plot each game by the first two components.
+
+```{r plot components for each, fig.height=8, fig.width=8, warning=F, message=F}
+
+# plot for each
+bar %>% 
+  select(dataset, pca_rotation) %>%
+  unnest() %>%
+  filter(dataset == 'info, categories, mechanics, and designers') %>%
+  ggplot(., aes(x=PC001, 
+                label = name,
+                y=PC002))+
+  geom_point(alpha=0.5)+
+   geom_text(check_overlap = T,
+             size = 3,
+            position=position_jitter(width=0.2,height=0.2))+
+  theme_phil()+
+  my_caption+
+  xlab("First Principal Component")+
+  ylab("Second Principal Component")+
+  facet_wrap(dataset~.)
+
+# plot for each
+bar %>% 
+  select(dataset, pca_rotation) %>% 
+  filter(dataset == 'info, mechanics, and designers') %>%
+  unnest() %>%
+  ggplot(., aes(x=PC01, 
+                label = name,
+                y=PC02))+
+  geom_point(alpha=0.5)+
+   geom_text(check_overlap = T,
+             size = 3,
+            position=position_jitter(width=0.2,height=0.2))+
+  theme_phil()+
+  my_caption+
+  xlab("First Principal Component")+
+  ylab("Second Principal Component")+
+  facet_wrap(dataset~.)
+  
+
+```
+
+Let's fit k means and identify clusters.
+
+### K Means 
+
+```{r k means to the nested data}
+
+# scale and then fit kmeans
+bar = bar %>%
+        mutate(norm_trained = map(data, ~ norm_recipe(.x))) %>%
+        mutate(scale_data = map(norm_trained, ~ .x %>% juice() %>%
+                       select(-timestamp,
+                              -game_id,
+                              -name,
+                              -average,
+                              -baverage,
+                              -usersrated,
+                              -yearpublished))) %>%
+        mutate(elbow_clusters = map(scale_data, ~ fviz_nbclust(.x, 
+                                                       kmeans, 
+                                                       method = "wss")))
+
+```
+
+We can now take a look at the elbow method and optimal clusters.
+
+```{r cluster investigation, warning=F, message=F}
+
+# look for elbow in clusters
+bar$elbow_clusters
+
+
+```
+
+Hmm. Let's go with 7 clusters.
+
+```{r fit kmeans with 7 clusters}
+
+bar = bar %>%
+        mutate(kmeans = map(scale_data, ~ kmeans(.x, 6, nstart=25))) %>%
+        mutate(kmeans_clusters = map(kmeans, ~ .x$cluster %>% as_tibble() %>% rename(cluster = value)))
+
+
+foo =bar %>%
+        mutate(scale_data_names =   map2(.x = scale_data,
+                                         .y = data,
+                                         ~ cbind.data.frame(.x, .y %>% select(game_id)) %>%
+                                                 column_to_rownames("game_id") %>%
+                                                 as.matrix())) %>%
+        mutate(viz_kmeans = map2(.x = kmeans, 
+                             .y = scale_data,
+                             ~ fviz_cluster(.x, .y) + 
+                                     theme_phil() + 
+                                     guides(label = "none")+
+                                     geom_vline(xintercept=0, 
+                                                linetype = 'dotted',
+                                                col='black')+
+                                     geom_hline(yintercept = 0,
+                                                linetype = 'dotted',
+                                                col = 'black')))
+
+
+foo$viz_kmeans
+
+
+
+```
+
+We can take a look at the games in each.
+
+```{r look at clusters, fig.height=8, fig.width=8, warning=F, message=F}
+
+bar %>%
+        filter(dataset == 'info, categories, mechanics, and designers') %>%
+        select(dataset, pca_rotation, kmeans_clusters) %>%
+        unnest() %>%
+        mutate(cluster = factor(cluster)) %>%
+        ggplot(., aes(x=PC001,
+                      label = name,
+                      color = cluster,
+                      y= PC002))+
+        geom_point(alpha=0.5)+
+        geom_text(check_overlap = T,
+             size = 3,
+             show.legend = F,
+            position=position_jitter(width=0.2,height=0.2))+
+        theme_phil()+
+  my_caption+
+  xlab("First Principal Component")+
+  ylab("Second Principal Component")+
+  facet_wrap(dataset~.)+
+        scale_color_manual(values = c("orange",
+                                      "darkred",
+                                      "blue",
+                                      "deepskyblue1",
+                                      "gold4",
+                                      "purple"))+
+        theme(legend.text = element_text(),
+              legend.title = element_text())
+
+
+set.seed(2)
+bar %>%
+        filter(dataset == 'info, categories, mechanics, and designers') %>%
+        select(dataset, pca_rotation, kmeans_clusters) %>%
+        unnest() %>%
+        select(game_id, name, cluster) %>%
+        group_by(cluster) %>%
+        sample_n(50) %>%
+        arrange(cluster) %>%
+        select(name, cluster) %>%
+        mutate(cluster = paste("Cluster", cluster, sep="_")) %>%
+        pivot_wider(., names_from = "cluster",
+                    values_from = "name") %>%
+        unnest() %>%
+        flextable() %>%
+        flextable::autofit() %>%
+        set_caption(., caption = "Sample of 50 Games for Each Cluster") %>%
+        color(., j = c("Cluster_1"),
+           color = "orange") %>%
+        color(., j = "Cluster_2",
+           color = "darkred") %>%
+        color(., j = c("Cluster_3"),
+           color = "blue") %>%
+        color(., j = "Cluster_4",
+           color = "deepskyblue1") %>%
+        color(., j = "Cluster_5",
+           color = "gold4") %>%
+        color(., j = "Cluster_6",
+           color = 'purple')
+
+```
+
+### Find Neighbors
+
+We'll now use the distance matrix to identify the closest neighbors for all games.
+
+```{r find closest neighbors}
+
+bar = bar %>%
+  mutate(obs_dist = map(pca_dist, ~ .x %>%
+                             rownames_to_column(".row") %>%
+                             gather('closest','dist',-.row) %>%
+                             filter(dist > 0) %>%
+                             filter(!is.na(dist)) %>% 
+                             group_by(.row) %>% 
+                             arrange(dist) %>% 
+                             slice_min(dist, n=100, with_ties = T) %>%
+                             mutate(dist_rank=row_number()))) %>%
+  mutate(neighbors = map2(obs_dist, data,
+                      ~ left_join(.x, .y %>%
+                                    mutate(.row = as.character(row_number())), 
+                                  by = c(".row")) %>%
+                        select(.row, game_id, name, closest, dist, dist_rank) %>% 
+                        left_join(., .y %>%
+                                    mutate(.row = as.character(row_number())) %>%
+                                    rename(neighbor_row = .row,
+                                           neighbor_game_id = game_id,
+                                           neighbor_name = name),
+                                  by = c("closest" = "neighbor_row"))))
+
+```
+
+We can then open this up and look at a game's nearest neighbors.
+
+```{r open up neighbors, warning=F, message=F}
+
+neighbors = bar %>%
+  select(dataset, neighbors) %>% 
+  unnest() %>%
+  mutate(similarity = 100*1/(1+ sqrt(dist))) %>%
+  group_by(dataset) %>%
+        do(data.frame(., perc = ecdf(.$dist)(.$dist))) %>%
+  mutate(perc = (100*(1-perc))) %>%
+  select(dataset, game_id, name, neighbor_game_id, neighbor_name, similarity, dist, dist_rank, perc) %>%
+  left_join(., active_games %>%
+              rename(neighbor_game_id = game_id,
+                     neighbor_name = name))
+
+```
+
+Create a function for placing games.
+
+```{r create a function for neighbors and games, warning=F, message=F}
+
+pca_plot_1 = bar %>%
+        filter(dataset == 'info, categories, mechanics, and designers') %>%
+        select(dataset, pca_rotation, kmeans_clusters) %>%
+        unnest() %>%
+        ggplot(.,aes(x = PC001,
+                     label = name,
+               y= PC002))+
+        geom_point(color = 'grey60',
+                   alpha = 0.1)+
+        geom_text(check_overlap = T,
+                  color = 'grey50',
+             size = 2.5,
+             show.legend = F,
+            position=position_jitter(width=0.2,height=0.2))+
+        theme_phil()+
+        xlab("First Principal Component")+
+        ylab("First Principal Component")+
+        annotate("label",
+                 x = 6,
+                 y= -7,
+                 label = "Party")+
+        annotate("label",
+                 x = -7,
+                 y = -12,
+                 label = "Thematic")+
+        annotate("label",
+                 x = -10,
+                 y = 4,
+                 label = "Simulation/Wargame")+
+        annotate("label",
+                 x = 0,
+                 y = 5,
+                 label = "Euro")+
+        annotate("label",
+                 x = 4,
+                 y = 3,
+                 label = "Abstract")
+
+neighbors_function = function(game) {
+        
+        # table
+      table = neighbors %>%
+              ungroup() %>%
+          filter(name == game) %>%
+              filter(dataset == 'info, categories, mechanics, and designers') %>%
+          select(dataset, game_id, name, neighbor_game_id, neighbor_name, similarity, dist, perc, yearpublished, rank, average, baverage) %>%
+          mutate(game_id = as.character(game_id),
+                 neighbor_game_id = as.character(neighbor_game_id),
+                 yearpublished = as.character(yearpublished)) %>%
+          rename(BGGRank = rank,
+                 BGGRating = average,
+                 GeekRating = baverage) %>%
+          group_by(dataset) %>%
+          arrange(dataset, dist) %>%
+          mutate(rank = row_number()) %>%
+              ungroup() %>%
+          filter(rank <=10) %>%
+          rename(Comparing_By = dataset,
+                 ID = neighbor_game_id,
+                 Published = yearpublished,
+                 Name = neighbor_name,
+                 Rank = rank) %>%
+              ungroup() %>%
+          select(Comparing_By, Rank, ID, Name, Published, BGGRank, BGGRating, GeekRating) %>%
+          mutate_if(is.numeric, round, 2) %>%
+          flextable() %>%
+          flextable::autofit() %>%
+          set_caption(paste("Comparables games to", game, sep=" ")) %>%
+          bg(., i = ~ Comparing_By =='info, categories, mechanics, and designers',
+             bg = 'grey100') %>%
+            bg(., i = ~ Comparing_By == 'info, mechanics, and designers',
+             bg = 'grey90')
+      
+      # plot highlighting selected game
+      plot = pca_plot_1 +
+              geom_point(data =  bar %>%
+                                 filter(dataset == 'info, categories, mechanics, and designers') %>%
+                                 select(dataset, pca_rotation, kmeans_clusters) %>%
+                                 unnest() %>%
+                                 filter(name == game),
+                         aes(x=PC001,
+                             y = PC002),
+                         size = 4,
+                         alpha=0.8,
+                         color = 'navy')+
+              geom_text(data =  bar %>%
+                                 filter(dataset == 'info, categories, mechanics, and designers') %>%
+                                 select(dataset, pca_rotation, kmeans_clusters) %>%
+                                 unnest() %>%
+                                 filter(name == game),
+                         aes(x=PC001,
+                             label = name,
+                             y = PC002),
+                        position=position_jitter(height=0.9),
+                         size = 6,
+                         alpha=0.8,
+                         color = 'navy')
+              
+      
+      out = list("table" = table,
+                 "plot" = plot)
+      
+     return(out)
+        
+}
+
+```
+
+We can now use the function to look at games.
+
+Nemesis.
+
+```{r neighbor function for nemesis, fig.height=8, fig.width=8,  warning=F, message=F}
+
+neighbors_function("Nemesis")
+
+```
+
+
+```{r neighbor function example 2, fig.height=8, fig.width=8,  warning=F, message=F}
+
+neighbors_function("Brass: Birmingham")
+
+```
+
+### Adding New Games
+
+We can now add in the games from our test set and place them here.
+
+Create our nested set.
+
+```{r melt test, warning=F, message=F}
+
+games_test = games_datasets$test
+
+# bake
+baked_test = recipe_prep %>%
+        prep(games_train, strings_as_factor = F) %>%
+        bake(new_data = games_test) 
+
+# create two datasets
+nested_test_data<- baked_test %>%
+  mutate(dataset = "info, categories, mechanics, and designers") %>%
+  nest(-dataset) %>%
+  bind_rows(., baked_test %>%
+              mutate(dataset = "info, mechanics, and designers") %>%
+              select(-starts_with("cat_"),
+                     -number_categories) %>%
+              nest(-dataset))
+
+```
+
+
+
+```{r apply to test games, warning=F, message=F}
+
+nested_test_data %>%
+        unnest()
+
+bar2 = bar %>%
+        select(dataset, pca_trained) %>%
+        left_join(., nested_test_data) %>%
+        mutate(pca_rotation = map2(.x = pca_trained,
+                                   .y = data,
+                                   ~ .x %>% bake(new_data = .y))) %>%
+        mutate(type = "test") %>%
+        select(type, dataset, pca_rotation) %>%
+        bind_rows(., 
+                  bar %>%
+                          mutate(type = "train") %>%
+                          select(type, dataset, pca_rotation))
+
+
+bar3 = bar2 %>%
+        select(type, dataset, pca_rotation) %>%
+        filter(dataset == 'info, categories, mechanics, and designers') %>%
+        unnest() %>%
+        nest(-dataset) %>%
+        rename(pca_rotation = data) %>%
+        mutate(pca_dist = map(pca_rotation, 
+                        ~ dist(.x %>%
+                                 select(-timestamp,
+                                        -type,
+                                        -game_id,
+                                        -average,
+                                        -baverage,
+                                        -usersrated,
+                                        -yearpublished,
+                                        -name) %>%
+                                 as.matrix(), method="euclidean") %>%
+                             as.matrix() %>%
+                             as.data.frame()))
+               
+```
+
+Now find neighbors.
+
+```{r neighbors for all}
+
+bar3 = bar3 %>%
+  mutate(obs_dist = map(pca_dist, ~ .x %>%
+                             rownames_to_column(".row") %>%
+                             gather('closest','dist',-.row) %>%
+                             filter(dist > 0) %>%
+                             filter(!is.na(dist)) %>% 
+                             group_by(.row) %>% 
+                             arrange(dist) %>% 
+                             slice_min(dist, n=50, with_ties = T) %>%
+                             mutate(dist_rank=row_number()))) %>%
+  mutate(neighbors = map2(obs_dist, data,
+                      ~ left_join(.x, .y %>%
+                                    mutate(.row = as.character(row_number())), 
+                                  by = c(".row")) %>%
+                        select(.row, game_id, name, closest, dist, dist_rank) %>% 
+                        left_join(., .y %>%
+                                    mutate(.row = as.character(row_number())) %>%
+                                    rename(neighbor_row = .row,
+                                           neighbor_game_id = game_id,
+                                           neighbor_name = name),
+                                  by = c("closest" = "neighbor_row"))))
+
+```
+
+We can then open this up and look at a game's nearest neighbors.
+
+```{r open up neighbors, warning=F, message=F}
+
+neighbors2 = bar3 %>%
+  select(dataset, neighbors) %>% 
+  unnest() %>%
+  mutate(similarity = 100*1/(1+ sqrt(dist))) %>%
+  group_by(dataset) %>%
+        do(data.frame(., perc = ecdf(.$dist)(.$dist))) %>%
+  mutate(perc = (100*(1-perc))) %>%
+  select(dataset, game_id, name, neighbor_game_id, neighbor_name, similarity, dist, dist_rank, perc) %>%
+  left_join(., active_games %>%
+              rename(neighbor_game_id = game_id,
+                     neighbor_name = name))
+
+```
+
