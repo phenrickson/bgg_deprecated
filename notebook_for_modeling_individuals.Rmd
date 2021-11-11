@@ -40,7 +40,7 @@ set_flextable_defaults(theme_fun = theme_booktabs,
   padding.right = 6,
   background.color = "white")
 
-my_caption = list(labs(caption = paste(paste("Data from boardgamegeek.com as of", as.Date("2021-10-24")),
+my_caption = list(labs(caption = paste(paste("Data from boardgamegeek.com as of", Sys.Date()),
                         paste("Data and analysis at github.com/phenrickson/bgg"), sep="\n")))
 
 ```
@@ -50,11 +50,33 @@ Load previously queried training and test data.
 
 ```{r load previously stored data, warning=F, mesage=F, echo=F}
 
-train_data = load("/Users/Phil/OneDrive - AE Business Solutions/Documents/board_game_projects/samp_train_data.Rdata")
-test_data = load("/Users/Phil/OneDrive - AE Business Solutions/Documents/board_game_projects/samp_test_data.Rdata")
+load("/Users/Phil/OneDrive - AE Business Solutions/Documents/board_game_projects/bgg/games_train.Rdata")
+load("/Users/Phil/OneDrive - AE Business Solutions/Documents/board_game_projects/bgg/games_test.Rdata")
 
 ```
 
+Set function for displaying probabilities
+
+```{r set col_func}
+
+col_func<- function(x) {
+  
+  breaks<-seq(0, 1, .01)
+  
+#  breaks = weight_deciles
+  colorRamp=colorRampPalette(c("white", "deepskyblue1"))
+  col_palette <- colorRamp(length(breaks))
+  mycut <- cut(x, 
+    breaks = breaks,
+    include.lowest = TRUE, 
+    right=T,
+    label = FALSE)
+  col_palette[mycut]
+  
+}
+
+
+```
 
 ```{r functions, echo = F, warning=F, message=F}
 
@@ -70,6 +92,7 @@ get_user_collection = function(username) {
         # load collection
         get_collection(username) %>%
                         as_tibble()
+        
 }
 
 # combine training data with collection data and bake
@@ -117,7 +140,7 @@ bake_user_collection = function(train_data,
                 step_filter(
                         cat_collectible_components !=1 &
                                 cat_expansion_for_basegame != 1) %>% # remove specific categories that count expansions
-                step_filter(yearpublished > 1950) %>%
+          #      step_filter(yearpublished > 1900) %>%
                 step_mutate(published_prior_1900 = case_when(yearpublished<1900 ~ 1,
                                                              TRUE ~ 0)) %>%
                 step_mutate(yearpublished = case_when(yearpublished <= 1900 ~ 1900,
@@ -141,6 +164,8 @@ bake_user_collection = function(train_data,
                                fn = ~ replace_na(., 0)) %>%
                 step_mutate_at(starts_with("des_"),
                                fn = ~ replace_na(., 0)) %>%
+               step_mutate_at(starts_with("art_"),
+                               fn = ~ replace_na(., 0)) %>%
                 step_mutate_at(starts_with("pub_"),
                                fn = ~ replace_na(., 0)) %>%
                 step_mutate_at(starts_with("own_"),
@@ -151,7 +176,7 @@ bake_user_collection = function(train_data,
                                fn = ~ replace_na(., 0)) %>%
                 step_mutate(number_mechanics = rowSums(across(starts_with("mech_"))),
                             number_categories = rowSums(across(starts_with("cat_"))),
-                            number_designers = rowSums(across(starts_with("des_")))) %>%
+                            number_artists = rowSums(across(starts_with("art_")))) %>%
                 step_log(playingtime,
                          time_per_player,
                          offset = 1) %>%
@@ -536,7 +561,7 @@ model_coefs_user = function(models, effect_size) {
                                    linetype = 'dotted')+
                         xlab("Feature")+
                         ylab("Estimated Effect on Outcome")+
-                        labs(title = "What Predicts a Reviewer's Collection?",
+                        labs(title = "What Predicts a User's Collection?",
                              subtitle = str_wrap("Coefficients from penalized logistic regression models for a user's BGG Collection. Predictors centered and scaled. Models trained on all games published before 2020.", 90))+
                         theme(panel.grid.minor = element_blank(),
                               panel.grid.major = element_blank())+
@@ -599,7 +624,7 @@ analyse_user = function(username,
         
         # get coefs
         coefs_user=model_coefs_user(models_user,
-                         effect_size = 0.03)
+                         effect_size = 0.025)
         
         # examine oos preds
         oos_preds = models_user %>%
@@ -633,7 +658,7 @@ analyse_user = function(username,
         
         # look at top 50 from oos
         ft_oos = oos_preds %>%
-                head(50) %>%
+                head(100) %>%
                 flextable() %>%
                 flextable::autofit() %>%
                 bg(., i = ~ actual_own == 1,
@@ -666,9 +691,12 @@ analyse_user = function(username,
                           by = ".row") %>%
                 mutate(user_variable = paste(outcome_type, username, sep="_"))
         
+
+        
         # table
         ft_preds = test_preds %>%
                 filter(yearpublished < 2023) %>%
+                filter(game_id != 295374) %>% # long shot effect
                 select(username, yearpublished, outcome_type, game_id, name, glmnet) %>%
                 spread(outcome_type, glmnet) %>%
                 arrange(own) %>%
@@ -676,14 +704,26 @@ analyse_user = function(username,
                 group_by(yearpublished) %>%
                 slice_max(., 
                           order_by = have_played,
-                          n=5,
+                          n=25,
                           with_ties = T) %>%
                 mutate(game_id = as.character(game_id),
                        yearpublished = as.character(yearpublished)) %>%
                 select(username, yearpublished, game_id, name, everything()) %>%
-                head(50) %>%
+          arrange(yearpublished, desc(own)) %>%
+          mutate(rank = row_number()) %>%
+          select(username, yearpublished, game_id, name, rank, everything()) %>%
                 flextable() %>%
-                flextable::autofit()
+                flextable::autofit() %>%
+          bg(., i = ~ yearpublished == '2021',
+             bg = 'grey90') %>%
+                  bg(.,
+                     j = c("have_played", "own"),
+                     bg = col_func)
+          # bg(., i = ~ yearpublished == '2021',
+          #            bg = 'grey80') %>%
+          #                             bg(., i = ~ yearpublished == '2022',
+          #            bg = 'grey100')
+          # 
         
         
         # get list of output
@@ -711,8 +751,8 @@ Fit models and analyze collection for `r params$username`.
 
 #use all in one go
 foo = analyse_user(params$username,
-                   train_data = samp_train_data,
-                   test_data = samp_test_data)
+                   train_data = games_train,
+                   test_data = games_test)
 
 ```
 
@@ -748,7 +788,7 @@ rm(temp_own,
 
 Examine coefficients from the trained model.
 
-```{r plot coefficients, echo=F, warning=F, message=F, fig.height=9, fig.width=10}
+```{r plot coefficients, echo=F, warning=F, message=F, fig.height=10, fig.width=10}
 
 foo$coefs
 
@@ -786,7 +826,9 @@ Formally assess how well the model did in resampling.
 
 ```{r assess models in oos, echo=F, warning=F, message=F}
 
-foo$oos_assessment
+foo$oos_assessment %>%
+  flextable() %>%
+  flextable::autofit()
 
 ```
 
