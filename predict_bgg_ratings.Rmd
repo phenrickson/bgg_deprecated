@@ -14,6 +14,7 @@ This notebook is for building predictive models of the boardgamegeek community's
 ```{r global settings, echo=F, warning=F, message=F}
 
 knitr::opts_chunk$set(echo = F,
+                      error=F,
                       dev="png",
                       fig.width = 9,
                       fig.height = 6)
@@ -544,6 +545,7 @@ publisher_list = c(51,
                    1001,
                    512,
                    4,
+                   140,
                    157,
                    34,
                    28,
@@ -573,6 +575,7 @@ publisher_list = c(51,
                    171,
                    93,
                    25842,
+                   140,
                    28072)
 
 #save(publisher_list, file = "publishers_white_list.Rdata")
@@ -1238,7 +1241,7 @@ Save this locally.
 
 ```{r save models trained}
 
-save(ratings_models, file=paste("ratings_models", Sys.Date(), ".Rds", sep="_"))
+save(ratings_models, file=paste("predict_bgg_ratings_files/ratings_models_", Sys.Date(), ".Rds", sep=""))
 #load("ratings_models_2021-11-1.Rds")
 
 ```
@@ -1251,7 +1254,7 @@ We can examine the results of the models, starting with the linear model we fit 
 
 The cool thing about fitting a bayesian regression with Stan is that we get a posterior from which we can sample, enabling us to simulate and explore uncertainty. We can plot the distribution of each coefficient for each outcome.
 
-```{r make coef plot for stan, warning=F, message=F, fig.height=8, fig.width=8}
+```{r make coef plot for stan, warning=F, message=F, fig.height=10, fig.width=8}
 
 library(broom.mixed)
 conflict_prefer("set_names", "magrittr")
@@ -1428,7 +1431,7 @@ rm(samples)
                                                                    
 ```
 
-Here we can see the issue with the model fit to the geek rating - we tend to overpredict games that are stuck at the initial starting value of 5.5, and then unpredict games that have moved away. Since we care more about the rank moreso than the precise geek rating, we'll see how this goes. The average looks to be in better shape.
+Here we can see the issue with the model fit to the geek rating - we tend to overpredict games that are stuck at the initial starting value of 5.5, and then under predict games that have moved away. Since we care more about the rank moreso than the precise geek rating, we'll see how this goes. The average looks to be in better shape.
 
 We can also see how well the model did in resampling with cross validation.
 
@@ -1461,22 +1464,22 @@ ratings_models %>%
         stat_cor(p.accuracy = .01, show.legend =F)+
         theme_phil()
 
-# plot resamples with folds
-ratings_models %>%
-        select(outcome_type, stan_lm_resamples) %>%
-        unnest() %>%
-        select(outcome_type, id, .predictions) %>%
-        unnest() %>%
-        ggplot(., aes(x=.pred, y=outcome, color = id))+
-        geom_point(alpha=0.25)+
-        scale_color_viridis_d()+
-        facet_wrap(outcome_type ~.,
-                   ncol =2,
-                   scales = "free")+
-        geom_smooth(method = 'lm', formula = 'y ~ x', show.legend = F)+
-        geom_abline(slope =1, intercept=0, linetype = 'dotted')+
-        stat_cor(p.accuracy = .01, show.legend =F)+
-        theme_phil()
+# # plot resamples with folds
+# ratings_models %>%
+#         select(outcome_type, stan_lm_resamples) %>%
+#         unnest() %>%
+#         select(outcome_type, id, .predictions) %>%
+#         unnest() %>%
+#         ggplot(., aes(x=.pred, y=outcome, color = id))+
+#         geom_point(alpha=0.25)+
+#         scale_color_viridis_d()+
+#         facet_wrap(outcome_type ~.,
+#                    ncol =2,
+#                    scales = "free")+
+#         geom_smooth(method = 'lm', formula = 'y ~ x', show.legend = F)+
+#         geom_abline(slope =1, intercept=0, linetype = 'dotted')+
+#         stat_cor(p.accuracy = .01, show.legend =F)+
+#         theme_phil()
 
 ```
 
@@ -1542,6 +1545,8 @@ preds %>%
 
 ```
 
+#### Simulating Ratings for Indvidual Games
+
 We can look at what the model thinks about any game in this way.
 
 Example 1: Terra Mystica. This is a game I'd expect the model to be pretty high on for both outcomes.
@@ -1576,7 +1581,6 @@ preds %>%
   my_caption
 
 ```
-
 
 Example 2: Kingdomino. This should be a tough one for the model, as it's rather simple but still highly rated. It might be helped by having a popular designer.
 
@@ -1644,7 +1648,6 @@ preds %>%
 
 Example 4: Wingspan. I'm curious to see what the model will think on this one, as it was a huge hit from a well known publisher but the designer was at the time relatively unknown. I would guess the model will be pretty spot on with its bgg average, but will dramatically underestimate its geek rating, as it became something of a run away phenomonen and is one of the most purchases games in recent years - I would imagine that would have been very difficult to predict ahead of time.
 
-
 ```{r look at any game wingspan, warning=F, message=F, fig.height=4, fig.width=8}
 
 samp = 266192
@@ -1677,6 +1680,8 @@ preds %>%
 
 ### Penalized Linear Regression
 
+I also trained a regularized linear regression, and we can see how the model did depending on the size of the penalty during tuning. Generally, it looks like we only apply a slight penalty - the model does better the more predictors are present, but it does shrink some coefficients a bit. In effect, this produces pretty similar results to the linear model fit with Stan.
+
 ```{r get the glmnet tuning results, fig.height=10, fig.width=8}
 
 ratings_models %>%
@@ -1698,6 +1703,7 @@ ratings_models %>%
 
 ```
 
+We can see how well the penalized model does in resampling, and the results are very, very similar to the previous model.
 
 ```{r glmnet pred vs actual, warning=F, message=F}
 
@@ -1716,8 +1722,6 @@ ratings_models %>%
         geom_smooth(method = 'lm', formula = 'y ~x')
 
 ```
-
-Looks like we're getting a pretty similar fit between the the linear model we fit with stan and the lightly penalized model here.
 
 Let's also get the coefficients and plot.
 
@@ -1760,7 +1764,7 @@ We can probably get some gains by using the more flexible, tree based models, as
 
 #### Resampling
 
-How did these models do in tuning during resampling? 
+How did these models do in tuning during resampling?  We see a slightly better performance for both of the tree-based ensembles, though the performance increase isn't massive.
 
 ```{r tuning parameters, warning=F, message=F}
 
@@ -1790,7 +1794,7 @@ ratings_models %>%
 
 #### Variable Importance
 
-While we don't have coefficients from these nonparametric models, we can get a sense of the importance of specific features by looking at the permutation importance.
+While we don't have coefficients from these nonparametric models, we can get a sense of the importance of specific features by looking at the permutation importance - how much worse the models did when a variable was randomly shuffled from its true value.
 
 ```{r get vip for each, warning=F, message=F, fig.height=8, fig.width=8}
 
@@ -1863,10 +1867,6 @@ vips %>%
         my_caption+scale_color_colorblind()+
         xlab("Feature")+
         ylab("Permutation Importance")
-
-
-
-
 
 ```
 
@@ -2620,7 +2620,7 @@ test_preds %>%
         unnest() %>%
         filter(usersrated > 200) %>%
         select(outcome_type, yearpublished, outcome, game_id, name, stan_lm, glmnet, ranger, xgbTree) %>%
-        mutate(mean = (stan_lm + glmnet+ranger + xgbTree) /4) %>%
+        mutate(mean = (glmnet+stan_lm+ranger + xgbTree) /4) %>%
         filter(yearpublished == 2020) %>%
         melt(., id.vars = c("outcome_type", "yearpublished", "outcome", "game_id", "name")) %>%
         rename(method = variable,
@@ -3086,6 +3086,7 @@ We'll now do the same thing, predicting 2021 and 2022, except we don't really ha
 
 ```{r predict 2021 table, warning=F, message=F}
 
+# 
 preds_2021 = test_preds %>%
         select(outcome_type, data, stan_lm_preds, glmnet_preds, ranger_preds, xgbTree_preds) %>%
         unnest() %>%
@@ -3212,7 +3213,7 @@ shapley_plot(predictor.ranger.baverage,
 ```
 
 
-#### 2021 Geek Rating Predictions Chart (stan lm)
+#### 2021 Geek Rating Predictions Chart 
 
 Long Shot keeps haunting me.
 
@@ -3224,59 +3225,44 @@ posterior_preds_and_actual %>%
         filter(outcome_type == 'baverage') %>%
         group_by(outcome_type, game_id, yearpublished, name, average, baverage) %>%
         summarize_at(vars(value), funs(!!!p_funs)) %>%
-        mutate(name = abbreviate(name, minlength=35)) %>%
         mutate(outcome = case_when(outcome_type == 'average' ~ average,
                                    TRUE ~ baverage)) %>%
         ungroup() %>%
         select(-average, -baverage) %>%
         mutate(method = 'stan_lm') %>%
-       ggplot(., aes(x=reorder_within(name, within = outcome_type, by = perc_50),
-                      ymin = perc_5,
-                      ymax = perc_95))+
-        geom_errorbar()+
+  mutate(.pred = perc_50,
+         .pred_upper = perc_90,
+         .pred_lower = perc_10) %>%
+  select(outcome_type, game_id, yearpublished, name, .pred, .pred_upper, .pred_lower, method) %>%
+  bind_rows(., test_preds %>%
+              select(outcome_type, data, stan_lm_preds, glmnet_preds, ranger_preds, xgbTree_preds, ranger_interval_preds) %>%
+              unnest() %>%
+              select(outcome_type, yearpublished, game_id, name, outcome, .pred, .pred_lower, .pred_upper) %>%
+              filter(yearpublished == 2021) %>%
+              filter(outcome_type == 'baverage') %>%
+              mutate(method = 'ranger') %>%
+              select(outcome_type, game_id, yearpublished, name, .pred, .pred_upper, .pred_lower, method)) %>%
+  group_by(outcome_type, game_id, yearpublished, name) %>%
+  mutate(mean = mean(.pred)) %>%
+       ggplot(., aes(x=reorder(name, mean),
+                     color = method,
+                     y = .pred,
+                      ymin = .pred_lower,
+                      ymax = .pred_upper))+
+        geom_pointrange(position = position_dodge(width = .75)) +
         facet_wrap(yearpublished ~ outcome_type,
                    scales = "free")+
-        scale_x_reordered()+
+      #  scale_x_reordered()+
         coord_flip()+
         ylab("Predicted")+
         theme_phil()+
         xlab("Game")+
         my_caption+
-        theme(panel.grid.minor = element_blank())
+        theme(panel.grid.minor = element_blank())+
+  theme(panel.grid.minor = element_blank())+
+  scale_color_colorblind()
 
 ```
-
-#### 2021 Geek Ratings Predictions Chart (ranger)
-
-```{r plot full 2021 game with ranger, fig.height=50, fig.width=8, warning=F, message=F}
-
-# ranger
-test_preds %>%
-        select(outcome_type, data, stan_lm_preds, glmnet_preds, ranger_preds, xgbTree_preds, ranger_interval_preds) %>%
-        unnest() %>%
-        select(outcome_type, yearpublished, game_id, name, outcome, .pred, .pred_lower, .pred_upper) %>%
-        filter(yearpublished == 2021) %>%
-        filter(outcome_type == 'baverage') %>%
-        mutate(method = 'ranger') %>%
-        ggplot(., aes(x=reorder_within(name, within = outcome_type, by = .pred),
-                      y = outcome,
-                      ymin = .pred_lower,
-                      ymax = .pred_upper))+
-        geom_errorbar()+
-        facet_wrap(method + outcome_type ~ yearpublished,
-                   scales = "free")+
-        scale_x_reordered()+
-        coord_flip()+
-        ylab("Predicted")+
-        theme_phil()+
-        xlab("Game")+
-        my_caption
-
-
-```
-
-
-
 
 #### Full Table of 2022 Predictions
 
@@ -3329,49 +3315,7 @@ preds_2022 %>%
 
 ```
 
-```{r now plot the same table but with the prediction intervals, warning=F}
-
-# stan lm
-preds_2022_stan = posterior_preds_and_actual %>%
-        filter(yearpublished == 2022) %>%
-        filter(outcome_type == 'baverage') %>%
-        group_by(outcome_type, game_id, yearpublished, name, average, baverage) %>%
-        summarize_at(vars(value), funs(!!!p_funs)) %>%
-        mutate(outcome = case_when(outcome_type == 'average' ~ average,
-                                   TRUE ~ baverage)) %>%
-        ungroup() %>%
-        rename(.pred_lower = perc_5,
-               .pred = perc_50,
-               .pred_upper = perc_95) %>%
-        mutate(method = 'stan_lm') %>%
-        select(-average, -baverage, -perc_10, -perc_20, -perc_80, -perc_90)
- 
-# ranger
-preds_2022_rf =test_preds %>%
-        select(outcome_type, data, stan_lm_preds, glmnet_preds, ranger_preds, xgbTree_preds, ranger_interval_preds) %>%
-        unnest() %>%
-        select(outcome_type, yearpublished, game_id, name, outcome, .pred, .pred_lower, .pred_upper) %>%
-        filter(yearpublished == 2022) %>%
-        filter(outcome_type == 'baverage') %>%
-        mutate(method = 'ranger')
-
-# combine
-# preds_2022_rf %>%
-#         bind_rows(., preds_2022_stan) %>%
-#         rename(Pred = .pred,
-#                Pred_Up = .pred_upper,
-#                Pred_Low = .pred_lower) %>%
-#         mutate(method = case_when(method == 'stan_lm' ~ 'lm',
-#                                   TRUE ~ 'rf')) %>%
-#         mutate_if(is.numeric, round, 2)
-
-
-              
-
-```
-
-#### 2022 Geek Rating Predictions Chart (stan lm)
-
+#### 2022 Geek Rating Predictions Chart
 
 ```{r plot full 2022 game baverages stan, fig.height=10, fig.width=8, warning=F, message=F}
 
@@ -3381,67 +3325,46 @@ posterior_preds_and_actual %>%
         filter(outcome_type == 'baverage') %>%
         group_by(outcome_type, game_id, yearpublished, name, average, baverage) %>%
         summarize_at(vars(value), funs(!!!p_funs)) %>%
-        mutate(name = abbreviate(name, minlength=35)) %>%
         mutate(outcome = case_when(outcome_type == 'average' ~ average,
                                    TRUE ~ baverage)) %>%
         ungroup() %>%
         select(-average, -baverage) %>%
         mutate(method = 'stan_lm') %>%
-       ggplot(., aes(x=reorder_within(name, within = outcome_type, by = perc_50),
-                      ymin = perc_5,
-                      ymax = perc_95))+
-        geom_errorbar()+
+  mutate(.pred = perc_50,
+         .pred_upper = perc_90,
+         .pred_lower = perc_10) %>%
+  select(outcome_type, game_id, yearpublished, name, .pred, .pred_upper, .pred_lower, method) %>%
+  bind_rows(., test_preds %>%
+              select(outcome_type, data, stan_lm_preds, glmnet_preds, ranger_preds, xgbTree_preds, ranger_interval_preds) %>%
+              unnest() %>%
+              select(outcome_type, yearpublished, game_id, name, outcome, .pred, .pred_lower, .pred_upper) %>%
+              filter(yearpublished == 2022) %>%
+              filter(outcome_type == 'baverage') %>%
+              mutate(method = 'ranger') %>%
+              select(outcome_type, game_id, yearpublished, name, .pred, .pred_upper, .pred_lower, method)) %>%
+  group_by(outcome_type, game_id, yearpublished, name) %>%
+  mutate(mean = mean(.pred)) %>%
+       ggplot(., aes(x=reorder(name, mean),
+                     color = method,
+                     y = .pred,
+                      ymin = .pred_lower,
+                      ymax = .pred_upper))+
+        geom_pointrange(position = position_dodge(width = .75)) +
         facet_wrap(yearpublished ~ outcome_type,
                    scales = "free")+
-        scale_x_reordered()+
+      #  scale_x_reordered()+
         coord_flip()+
         ylab("Predicted")+
         theme_phil()+
         xlab("Game")+
         my_caption+
-        theme(panel.grid.minor = element_blank())
+        theme(panel.grid.minor = element_blank())+
+  theme(panel.grid.minor = element_blank())+
+  scale_color_colorblind()
 
 ```
 
-#### 2022 Geek Rating Predictions Chart (ranger)
-
-```{r plot full 2022 game baverages, fig.height=10, fig.width=8, warning=F, message=F}
-
-# ranger
-test_preds %>%
-        select(outcome_type, data, stan_lm_preds, glmnet_preds, ranger_preds, xgbTree_preds, ranger_interval_preds) %>%
-        unnest() %>%
-        select(outcome_type, yearpublished, game_id, name, outcome, .pred, .pred_lower, .pred_upper) %>%
-        filter(yearpublished == 2022) %>%
-        filter(outcome_type == 'baverage') %>%
-        mutate(method = 'ranger') %>%
-        ggplot(., aes(x=reorder_within(name, within = outcome_type, by = .pred),
-                      y = outcome,
-                      ymin = .pred_lower,
-                      ymax = .pred_upper))+
-        geom_errorbar()+
-        facet_wrap(method + outcome_type ~ yearpublished,
-                   scales = "free")+
-        scale_x_reordered()+
-        coord_flip()+
-        ylab("Predicted")+
-        theme_phil()+
-        xlab("Game")+
-        my_caption
-
-
-```
-
-
-```{r save test preds, warning=F,}
-
-save(test_preds, file=paste("rating_preds_", Sys.Date(), ".Rdata", sep=""))
-save(oos_preds, file = paste("oos_rating_preds", Sys.Date(), ".Rdata", sep = ""))
-
-```
-
-
-```{r save csvs, warning=F}
+```{r save preds out, warning=F}
 
 test_preds_out=test_preds %>%
         select(outcome_type, data, stan_lm_preds, glmnet_preds, ranger_preds, xgbTree_preds) %>%
@@ -3488,9 +3411,352 @@ oos_preds_out = oos_preds %>%
   select(outcome_type, yearpublished, game_id, name, outcome, stan_lm, ranger, xgbTree)
 
 
-save(test_preds_out, file = paste("test_preds_out", Sys.Date(), ".Rdata", sep=""))
-save(oos_preds_out, file = paste("oos_preds_out", Sys.Date(), ".Rdata", sep=""))
+save(test_preds_out, file = paste("predict_bgg_ratings_files/test_preds_out_", Sys.Date(), ".Rdata", sep=""))
+save(oos_preds_out, file = paste("predict_bgg_ratings_files/oos_preds_out_", Sys.Date(), ".Rdata", sep=""))
   
+```
+
+## Individual Games
+
+Hmm. So for some of these, we don't have a complexity rating yet, or not one we can be all that confident in. What's the relationship between number of mechanics and the avgweight? Let's look in the training set.
+
+```{r fit a simple lm to mechanics, warning=F}
+
+baked_train %>%
+  ggplot(., aes(x=number_mechanics,
+                y = avgweight))+
+  geom_jitter(alpha = 0.5)+
+  theme_phil()+
+  geom_smooth(method = "lm",
+              formula = 'y ~ x')+
+  stat_cor(p.accuracy = 0.1)
+
+weight_lm = baked_train %>%
+  nest() %>%
+  mutate(mod = map(data, ~ lm(avgweight ~ number_mechanics,
+                                     data = .x)))
+
+```
+
+We can otherwise view the current complexity rating as the center of a distribution which we can then sample around to represent the uncertainty around its complexity.
+
+```{r function for simulating uncertainty and prediction}
+
+simulate_game_function = function(id) {
+  
+  source("functions/get_game_record.R")
+  
+      # get the game
+  raw_record = get_game_record(id)
+  
+  # get number of designers
+  raw_record = raw_record %>%
+  mutate(number_designers = rowSums(across(starts_with("des_")))) 
+  
+  # attach all names from training
+  record = bind_rows(raw_record,
+                     games_train[0,])
+  
+  # bake using previously trained recipe
+  baked_record = recipe_ratings %>%
+    prep(games_train, strings_as_factor = F) %>%
+    bake(record)
+  
+  # add some uncertainty to the avgweight
+  set.seed(1999)
+  baked_sim = baked_record %>%
+    select(-avgweight) %>%
+    nest() %>%
+    cbind.data.frame(., data.frame(avgweight = rnorm(100, baked_record$avgweight, 0.25))) %>%
+    as_tibble() %>%
+    unnest()
+  
+  # melt
+  melted_baked_record <- baked_sim %>%
+          melt(., id.vars = vars) %>%
+          rename(outcome = value,
+                 outcome_type = variable) %>%
+          nest(-outcome_type)
+  
+  # predict
+  set.seed(1999)
+  preds_record = ratings_models %>%
+          select(outcome_type, 
+           stan_lm, 
+           glmnet_fit,
+           ranger_fit,
+           xgbTree_fit) %>%
+          mutate(stan_lm_fit = map(stan_lm,
+                                   ~ .x %>% extract_fit_parsnip())) %>%
+          mutate(stan_lm_preds = map(stan_lm,
+                                  ~ .x %>%
+                                          predict(baked_sim) %>%
+                                          rename(stan_lm = .pred))) %>%
+          mutate(stan_lm_posterior_preds = map2(.x = stan_lm_fit,
+                                                .y = stan_lm,
+                                     ~ .x$fit %>%
+                                             posterior_predict(.y %>% 
+                                                                       extract_recipe() %>%
+                                                                       bake(baked_sim),
+                                                               draws = 1000) %>%
+                                             tidy_draws() %>%
+                                            melt(id.vars = c(".chain",
+                                                                       ".iteration",
+                                                                       ".draw")) %>%
+                                                      mutate(.row = as.integer(variable)))) %>%
+          mutate(glmnet_preds = map(glmnet_fit,
+                                  ~ .x %>%
+                                          predict(baked_sim) %>%
+                                          rename(glmnet = .pred))) %>%
+          mutate(ranger_preds = map(ranger_fit,
+                                  ~ .x %>%
+                                          predict(baked_sim) %>%
+                                          rename(ranger = .pred))) %>%
+          mutate(ranger_interval_preds = map(ranger_fit,
+                                             ~.x$fit$fit$fit %>%
+                                                     predict(baked_sim,
+                                                             type = "quantiles",
+                                                             quantiles = c(.05, .95, .5)) %$% 
+                                                     predictions %>%
+                                                     as_tibble() %>% 
+                                                     set_names(paste0(".pred", c("_lower", "_upper",  ""))))) %>%
+          mutate(xgbTree_preds = map(xgbTree_fit,
+                                  ~ .x %>%
+                                          predict(baked_sim) %>%
+                                          rename(xgbTree = .pred))) %>%
+            left_join(., melted_baked_record,
+                    by = c("outcome_type"))
+  
+  ## unnest
+  pred_out = preds_record %>%
+          select(outcome_type, data, stan_lm_preds, glmnet_preds, ranger_preds, xgbTree_preds) %>%
+          unnest() %>%
+          select(outcome_type, yearpublished, game_id, name, outcome, stan_lm, glmnet, ranger, xgbTree)
+  
+  # mean
+  pred_out %>%
+    group_by(outcome_type, yearpublished, game_id, name, outcome) %>%
+    summarize(stan_lm = mean(stan_lm),
+              glmnet = mean(glmnet),
+              ranger = mean(ranger),
+              xgbTree = mean(xgbTree),
+              .groups = 'drop') %>%
+    mutate(game_id = as.character(game_id),
+           yearpublished = as.character(yearpublished)) %>%
+    mutate_if(is.numeric, round, 2) %>%
+    rename(current = outcome) %>%
+    flextable()
+  
+  # # plot
+  # pred_out %>%
+  #   melt(., id.vars = c("outcome_type", "yearpublished", "game_id", "name", "outcome")) %>%
+  #   ggplot(., aes(x=value,
+  #                 fill = variable))+
+  #   geom_histogram(alpha = 0.6,
+  #                  bins = 70)+
+  #   theme_phil()+
+  #   facet_wrap(name ~ outcome_type,
+  #              ncol =1)+
+  #   scale_fill_grey()+
+  #   coord_cartesian(xlim= c(4.5, 9.5))
+  
+  # display
+  # plot with simulations and actual
+  plot_obj = preds_record %>%
+    select(outcome_type, stan_lm_posterior_preds) %>%
+    left_join(., pred_out %>% 
+                select(outcome_type, yearpublished, game_id, name, outcome) %>% 
+                unique(),
+              by = "outcome_type") %>%
+    unnest()
+  
+  # make plot
+  plot = plot_obj %>%
+    ggplot(., aes(x=value))+
+    geom_histogram(bins = 100,
+                   alpha = 0.7,
+                   fill = 'grey60',
+                   color = NA)+
+    facet_wrap(name~outcome_type,
+               ncol = 1)+
+    theme_phil()+
+    xlab("Predicted Value")+
+    ylab("# of Simulations")+
+    my_caption+
+    geom_vline(data = plot_obj,
+          aes(xintercept=outcome),
+          alpha=0.9,
+          col = "blue")+
+      coord_cartesian(xlim= c(5, 10))
+  
+  return(plot)
+  
+}
+
+```
+
+Weather Machine
+
+```{r individual game 1, warning=F, message=F}
+
+# load
+id = 237179
+
+# use function
+simulate_game_function(id)
+
+```
+
+Wayfarers of the South Tigris
+
+```{r individual game 2, warning=F, message=F}
+
+# load
+id = 350316
+
+# use function
+simulate_game_function(id)
+
+```
+
+Frosthaven
+
+```{r individual game 3, warning=F, message=F}
+
+# load
+id = 295770
+
+# use function
+simulate_game_function(id)
+
+```
+
+That new Skyrim game
+
+```{r individual game 4, warning=F, message=F}
+
+# load
+id = 342372
+
+# use function
+simulate_game_function(id)
+
+```
+
+Boonlake
+
+```{r individual game 5, warning=F, message=F}
+
+# load
+id =343905
+
+# use function
+simulate_game_function(id)
+
+```
+
+Hegemony: Lead Your Class to Victory
+
+```{r individual game 7, warning=F, message=F}
+
+# load
+id =321608
+
+# use function
+simulate_game_function(id)
+
+```
+
+Horseless Carriage
+
+```{r individual game 8, warning=F, message=F}
+
+# load
+id  =350205
+
+# use function
+simulate_game_function(id)
+
+```
+
+Ark Nova
+
+```{r individual game 6, warning=F, message=F}
+
+# load
+id  = 342942
+
+# use function
+simulate_game_function(id)
+
+```
+
+```{r predict all games if they came out in 2010 and view the rankings}
+
+all_dat = bind_rows(melted_baked_train %>%
+                      unnest(),
+                    melted_baked_test %>%
+                      unnest()) %>%
+  filter(outcome_type == 'baverage')
+
+# what if we set year published to 2010?
+hypothetical_dat = all_dat %>%
+  mutate(actual_yearpublished  = yearpublished) %>%
+  mutate(yearpublished == 2015)
+
+set.seed(1999)
+hypothetical_preds = ratings_models %>%
+  filter(outcome_type == 'baverage') %>%
+        select(outcome_type, 
+         stan_lm, 
+         glmnet_fit,
+         ranger_fit,
+         xgbTree_fit) %>%
+        mutate(stan_lm_fit = map(stan_lm,
+                                 ~ .x %>% extract_fit_parsnip())) %>%
+        mutate(stan_lm_preds = map(stan_lm,
+                                ~ .x %>%
+                                        predict(hypothetical_dat) %>%
+                                        rename(stan_lm = .pred))) %>%
+        mutate(glmnet_preds = map(glmnet_fit,
+                                ~ .x %>%
+                                        predict(hypothetical_dat) %>%
+                                        rename(glmnet = .pred))) %>%
+        mutate(ranger_preds = map(ranger_fit,
+                                ~ .x %>%
+                                        predict(hypothetical_dat) %>%
+                                        rename(ranger = .pred))) %>%
+        mutate(xgbTree_preds = map(xgbTree_fit,
+                                ~ .x %>%
+                                        predict(hypothetical_dat) %>%
+                                        rename(xgbTree = .pred)))
+
+save(hypothetical_preds, file = "hypothetical_geeklist.Rdata")
+save(hypothetical_dat, file = "hypothetical_dat.Rdata")
+
+```
+
+
+```{r save pieces needed for making rest api}
+
+# 
+# prepped_recipe_ratings = recipe_ratings %>%
+#   prep(strings_as_factor=F)
+# 
+# # recipe
+# save(prepped_recipe_ratings, file = "predict_bgg_ratings_models/prepped_recipe_ratings.Rds")
+# 
+# # save models
+# trained_models = ratings_models %>%
+#   select(outcome_type, 
+#          stan_lm, 
+#          glmnet_fit,
+#          ranger_fit,
+#          xgbTree_fit)
+# save(trained_models, file = "predict_bgg_ratings_models/trained_models.Rds")
+# 
+# # datasets used
+# save(games_datasets, file = "predict_bgg_ratings_models/prepped_recipe_ratings.Rds")
 
 ```
 
