@@ -56,7 +56,10 @@ load("hypothetical_dat.Rdata")
 
 ```
 
-## Predicted Geek List vs Actual Geek List
+
+# Visualizations
+
+## Predicted Geek Rating vs Current Geek Rating
 
 I'll make a note for games that are being released in 2020-2022, as the model will favor these while the BGG community catches up. These are displayed in open circles.
 
@@ -108,7 +111,67 @@ hypothetical_preds %>%
                                 title.position = 'top',
                                 title = 'Model Likes        BGG Likes'),
          shape = guide_legend(title = ""))+
-  scale_shape_manual(values = c(1, 19))
+  scale_shape_manual(values = c(1, 19))+
+  geom_abline(linetype= 'dotted')
+
+```
+
+## Predicted Geek Rank vs Current Geek Rank
+
+What about the rank?
+
+```{r get predicted rank vs in plot, warning=F, message=F, fig.height=10, fig.width=10}
+
+hypothetical_preds %>%
+  select(outcome_type, contains("preds")) %>%
+  unnest() %>%
+  bind_cols(., hypothetical_dat %>%
+              select(-outcome_type)) %>%
+  mutate(mean = (stan_lm + glmnet + ranger + xgbTree)/4) %>%
+  arrange(desc(outcome)) %>%
+  mutate(current = row_number()) %>%
+  arrange(desc(mean)) %>%
+  mutate(pred_rank = row_number()) %>%
+  mutate(yearpublished = as.character(actual_yearpublished),
+         game_id = as.character(game_id)) %>%
+  mutate(today = Sys.Date()) %>%
+  select(today, game_id, name, yearpublished, outcome, current, pred_rank, outcome, mean, stan_lm, glmnet, ranger, xgbTree) %>%
+  mutate_if(is.numeric, round, 2) %>%
+  rename(GeekRating = outcome,
+         GeekRank = current,
+         Today = today,
+         ID = game_id,
+         Game = name,
+         Published = yearpublished,
+         ModelRank = pred_rank,
+         ModelRating = mean) %>%
+  select(Published, ID, Game, GeekRating, GeekRank, ModelRank, ModelRating) %>%
+  mutate(diff = ModelRank - GeekRank) %>%
+  mutate(shape = case_when(Published > 2019 ~ 'Published 2020+',
+                           TRUE ~ 'Published before 2020 ')) %>%
+  ggplot(., aes(x=ModelRank,
+                label = Game,
+                shape = shape,
+                color = diff,
+                y=GeekRank))+
+  geom_point(alpha=0.7)+
+  geom_text(check_overlap = T,
+            vjust=0.15,
+                   size=2)+
+  theme_phil()+
+  theme(legend.text = element_text(),
+        legend.title = element_text())+
+  my_caption+
+  scale_color_gradient2_tableau(palette = 'Green-Blue Diverging')+
+  guides(color = guide_colorbar(barwidth=10,
+                                barheight=0.5,
+                                title.position = 'top',
+                                title = 'Model Likes        BGG Likes'),
+         shape = guide_legend(title = ""))+
+  scale_shape_manual(values = c(1, 19))+
+  geom_abline(linetype= 'dotted')+
+  scale_x_reverse()+
+  scale_y_reverse()
 
 ```
 
@@ -146,10 +209,6 @@ foo = hypothetical_preds %>%
 datatable(foo)
 
 ```
-
-
-
-
 ## Predicted Geek List - Heat Table
 
 ```{r now create a table for all games, warning=F, message=F}
