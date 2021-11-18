@@ -7,7 +7,6 @@ output:
         toc: true
         toc_depth: 3
         keep_md: true
-    
 ---
 
 This notebook is for building predictive models of boardgame ratings for individal users.
@@ -16,7 +15,7 @@ This notebook is for building predictive models of boardgame ratings for individ
 
 knitr::opts_chunk$set(echo = F,
                       dev="png",
-                      fig.width = 8,
+                      fig.width = 9,
                       fig.height = 6)
 
 options(knitr.duplicate.label = "allow")
@@ -1207,7 +1206,7 @@ collection_pivot %>%
   arrange(desc(num_own)) %>%
   select(yearpublished, game_id, name, num_own, everything()) %>%
   mutate_at(vars("Quinns", "TomVasel", "ZeeGarcia", "rahdo", "Watch_It_Played", "NoPunIncluded", "Gyges"),
-            ~ case_when(. == 1 ~ "✓",
+            ~ case_when(. == 1 ~ "???",
                       TRUE ~ "")) %>%
   mutate(game_id = as.character(game_id),
          yearpublished = as.character(yearpublished)) %>%
@@ -2115,24 +2114,9 @@ stan_reg_mod <-
              prior = prior_dist,
              iter = 4000)
 
-# stan linear regression
-set.seed(123)
-stan_class_mod <-   
-  logistic_reg() %>% 
-  set_engine("stan", 
-             prior_intercept = prior_dist, 
-             prior = prior_dist,
-             iter = 4000)
-
 # penalized linear regression
 glmnet_reg_mod<- 
   linear_reg(penalty = tune::tune(),
-             mixture = 0.5) %>%
-  set_engine("glmnet")
-
-# penalized logistic regression
-glmnet_class_mod<- 
-  logistic_reg(penalty = tune::tune(),
              mixture = 0.5) %>%
   set_engine("glmnet")
 
@@ -2140,9 +2124,7 @@ glmnet_class_mod<-
 glmnet_grid <- tibble(penalty = 10^seq(-4, -0.5, 
                                        length.out = 30))
 
-
-#XGBoost model specification
-#reg
+# xgbTree model for regression
 xgbTree_reg_mod <-
   parsnip::boost_tree(
     mode = "regression",
@@ -2152,6 +2134,19 @@ xgbTree_reg_mod <-
     tree_depth = tune::tune()) %>%
   set_engine("xgboost",
                objective = "reg:squarederror")
+
+# ranger model for regression
+ranger_reg_mod<- parsnip::rand_forest(
+  mode = "regression",
+  mtry = tune::tune()) %>%
+  set_engine("ranger",
+             objective = "reg:squarederror")
+
+# grid
+ranger_grid <- 
+  expand.grid(
+    mtry = c(2, 9,15, 25, 50)
+  )
 
 # # xgbTree model specifications without tuning
 # xgbTree_reg_mod <-
