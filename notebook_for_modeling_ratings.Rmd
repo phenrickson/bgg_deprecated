@@ -451,7 +451,7 @@ data_inspection %>%
 
 Let's do the same thing for publishers, if only to first illustrate the potential problem with using publishers without some care. If we filter to publishers with at least 100 games, the list tends to be dominated by games we probably don't recognize. Why are CrowdD Games, Asterior Press ,Galapagos Jogos games at the top?
 
-```{r plot publishers, fig.height=9, fig.width=10}
+```{r plot publishers, fig.height=10, fig.width=10}
 
 min_games = 50
 
