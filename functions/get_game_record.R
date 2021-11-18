@@ -121,6 +121,12 @@ function(insert_id) {
                 unnest(cols = c("game_id", "publisher_id", "publisher")) %>%
                 arrange(game_id, publisher_id)
         
+        # game and publishers
+        game_artists <- df_list %>%
+                select(game_id, artist_id, artist) %>%
+                unnest(cols = c("game_id", "artist_id", "artist")) %>%
+                arrange(game_id, artist_id)
+        
         ### daily pull of games data with timestamp
         game_daily<-games_data %>%
                 select(game_id, 
@@ -206,6 +212,22 @@ function(insert_id) {
                                     values_fill = 0)
         }
         
+        # artists
+        if (nrow(game_artists) == 0) {artists_pivot = data.frame(game_id = games_data$game_id)} else {
+                artists_pivot = game_artists %>%
+                        mutate(artist = gsub("\\)", "", gsub("\\(", "", artist))) %>%
+                        mutate(artist = tolower(paste("art", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", artist))), sep="_"))) %>%
+                        mutate(has_artist = 1) %>%
+                        select(-artist_id) %>%
+                        pivot_wider(names_from = c("artist"),
+                                    values_from = c("has_artist"),
+                                    id_cols = c("game_id"),
+                                    names_sep = "_",
+                                    values_fn = min,
+                                    values_fill = 0)
+        }
+        
+        
         # combine into one output
         game_out <- game_daily %>%
                 left_join(., categories_pivot,
@@ -215,6 +237,8 @@ function(insert_id) {
                 left_join(., designers_pivot,
                           by = "game_id") %>%
                 left_join(., publishers_pivot,
+                          by = "game_id") %>%
+                left_join(., artists_pivot,
                           by = "game_id")
         
         return(game_out)

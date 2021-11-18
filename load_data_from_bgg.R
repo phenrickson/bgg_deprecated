@@ -14,7 +14,7 @@ library(bggAnalytics)
 library(bigrquery)
 
 #
-bq_auth(email = "phil.henrickson@aebs.com")
+bq_auth(email = key_get(service='ae'))
 
 # get game ids from most recent day
 # source function for reading data 

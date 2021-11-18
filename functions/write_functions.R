@@ -219,6 +219,12 @@ get_game_record<-function(insert_id) {
                 unnest(cols = c("game_id", "publisher_id", "publisher")) %>%
                 arrange(game_id, publisher_id)
         
+        # game and publishers
+        game_artists <- df_list %>%
+                select(game_id, artist_id, artist) %>%
+                unnest(cols = c("game_id", "artist_id", "artist")) %>%
+                arrange(game_id, artist_id)
+        
         ### daily pull of games data with timestamp
         game_daily<-games_data %>%
                 select(game_id, 
@@ -304,6 +310,22 @@ get_game_record<-function(insert_id) {
                                     values_fill = 0)
         }
         
+        # artists
+        if (nrow(game_artists) == 0) {artists_pivot = data.frame(game_id = games_data$game_id)} else {
+                artists_pivot = game_artists %>%
+                        mutate(artist = gsub("\\)", "", gsub("\\(", "", artist))) %>%
+                        mutate(artist = tolower(paste("art", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", artist))), sep="_"))) %>%
+                        mutate(has_artist = 1) %>%
+                        select(-artist_id) %>%
+                        pivot_wider(names_from = c("artist"),
+                                    values_from = c("has_artist"),
+                                    id_cols = c("game_id"),
+                                    names_sep = "_",
+                                    values_fn = min,
+                                    values_fill = 0)
+        }
+        
+        
         # combine into one output
         game_out <- game_daily %>%
                 left_join(., categories_pivot,
@@ -313,6 +335,8 @@ get_game_record<-function(insert_id) {
                 left_join(., designers_pivot,
                           by = "game_id") %>%
                 left_join(., publishers_pivot,
+                          by = "game_id") %>%
+                left_join(., artists_pivot,
                           by = "game_id")
         
         return(game_out)
@@ -338,7 +362,7 @@ combine_and_split_bgg_datasets = function(datasets_list,
                 left_join(., games_info %>% # join game info
                                   select(game_id, yearpublished, avgweight, minage, minplayers, maxplayers, playingtime),
                           by = c("game_id")) %>%
-                filter(yearpublished < year_split) %>% # use games prior to 2020 as our training set
+                filter(yearpublished <= year_split) %>% # use games prior to 2020 as our training set
                 left_join(., game_categories %>% # join categories
                                   mutate(category = gsub("\\)", "", gsub("\\(", "", category))) %>%
                                   mutate(category = tolower(paste("cat", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", category))), sep="_"))) %>%
@@ -416,7 +440,7 @@ combine_and_split_bgg_datasets = function(datasets_list,
                 left_join(., games_info %>% # join game info
                                   select(game_id, yearpublished, avgweight, minage, minplayers, maxplayers, playingtime),
                           by = c("game_id")) %>%
-                filter(yearpublished >= year_split) %>% # use games prior to 2020 as our training set
+                filter(yearpublished > year_split) %>% 
                 left_join(., game_categories %>% # join categories
                                   mutate(category = gsub("\\)", "", gsub("\\(", "", category))) %>%
                                   mutate(category = tolower(paste("cat", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", category))), sep="_"))) %>%
@@ -495,4 +519,451 @@ combine_and_split_bgg_datasets = function(datasets_list,
 }
 dump("combine_and_split_bgg_datasets", file="functions/combine_and_split_bgg_datasets.R")
 
+# function for predicting and baking
+bake_and_predict_ratings<- function(id,
+                                    trained_model) {
+        
+        require(tidyverse)
+        require(magrittr)
+        require(tidyverse)
+        require(broom)
+        require(data.table)
+        require(readr)
+        require(jsonlite)
+        require(rstan)
+        require(rstanarm)
+        require(recipes)
+        require(lubridate)
+        
+        id = as.integer(id)
+        
+        source(here::here("deployment/get_game_record.R"))
+        
+        # get training set
+        all_files = list.files(here::here("deployment"))
+        files = all_files[grepl("games|oos|recipe|preds|models", all_files)]
+        
+        # # get dataset
+        most_recent_games = all_files[grepl("games_datasets", all_files)] %>%
+                as_tibble() %>%
+                separate(value, c("name1", "name2", "date", "file"), sep = "([._])",
+                         extra = "merge",
+                         fill = "left") %>%
+                unite(name, name1:name2) %>%
+                mutate(date = as.Date(date)) %>%
+                filter(date == max(date)) %>%
+                unite(path, name:file) %>%
+                mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
+                pull(path)
+        
+        # get most recent recipe
+        most_recent_recipe = all_files[grepl("recipe", all_files)] %>%
+                as_tibble() %>%
+                separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
+                         extra = "merge",
+                         fill = "left") %>%
+                unite(name, name1:name3) %>%
+                mutate(date = as.Date(date)) %>%
+                filter(date == max(date)) %>%
+                unite(path, name:file) %>%
+                mutate(path = gsub("_Rds", ".Rds", path)) %>%
+                pull(path)
+        
+        # use function to get record from bgg
+        suppressMessages({
+                raw_record = get_game_record(id) %>%
+                        mutate(number_designers = rowSums(across(starts_with("des_"))))
+        })
+        
+        # get training set
+        games_datasets = readr::read_rds(here::here("deployment", most_recent_games))
+        
+        record=   bind_rows(raw_record,
+                            games_datasets$train[0,])
+        
+        rec <- readr::read_rds(here::here("deployment", most_recent_recipe))
+        
+        baked_record = bake(rec, record)
+        
+        req = toJSON(baked_record)
+        
+        #
+        model =  enquo(trained_model)
+        model = rlang::sym(paste(trained_model))
+        
+        # parse example from json
+        parsed_example <- jsonlite::fromJSON(req) %>%
+                mutate_if(is.integer, as.numeric) %>%
+                mutate(timestamp = as_datetime(timestamp))
+        
+        most_recent_models = all_files[grepl("trained_models_obj", all_files)] %>%
+                as_tibble() %>%
+                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
+                         extra = "merge",
+                         fill = "left") %>%
+                unite(name, name1:name3) %>%
+                mutate(date = as.Date(date)) %>%
+                filter(date == max(date)) %>%
+                unite(path, name:file) %>%
+                mutate(path = gsub("_Rds", ".Rds", path)) %>%
+                pull(path)
+        
+        # get most recent models
+        models = readr::read_rds(here::here("deployment", most_recent_models))
+        
+        # geek rating
+        model_baverage <- models %>%
+                filter(outcome_type == 'baverage') %>%
+                select(!!model) %>%
+                pull()
+        
+        # get first element
+        model_baverage = model_baverage[[1]]
+        
+        # average rating
+        model_average <- models %>%
+                filter(outcome_type == 'average') %>%
+                select(!!model) %>%
+                pull()
+        
+        # get first element
+        model_average = model_average[[1]]
+        
+        # now predict
+        prediction_baverage <- predict(model_baverage, new_data = parsed_example) %>%
+                as_tibble() %>%
+                set_names("baverage")
+        
+        prediction_average <- predict(model_average, new_data = parsed_example) %>%
+                as_tibble() %>%
+                set_names("average")
+        
+        # now combine
+        estimate = dplyr::bind_cols(parsed_example %>%
+                                            select(yearpublished, game_id, name),
+                                    prediction_baverage,
+                                    prediction_average) %>%
+                mutate_if(is.numeric, round, 2) %>%
+                melt(., id.vars = c("yearpublished", "game_id", "name")) %>%
+                rename(outcome = variable,
+                       pred = value) %>%
+                mutate(method = paste(trained_model)) %>%
+                select(method, everything())
+        
+        out = list("estimate" = estimate,
+                   "record" = req)
+        
+        out
+        
+}
+
+dump("bake_and_predict_ratings", file="functions/bake_and_predict_ratings.R")
+
+bake_and_predict_posterior <- function(id) {
+        
+        require(tidyverse)
+        require(magrittr)
+        require(tidyverse)
+        require(broom)
+        require(data.table)
+        require(readr)
+        require(jsonlite)
+        require(rstan)
+        require(rstanarm)
+        require(recipes)
+        require(lubridate)
+        
+        id = as.integer(id)
+        
+        source(here::here("deployment/get_game_record.R"))
+        
+        # get training set
+        all_files = list.files(here::here("deployment"))
+        files = all_files[grepl("games|oos|recipe|preds|models", all_files)]
+        
+        # # get dataset
+        most_recent_games = all_files[grepl("games_datasets", all_files)] %>%
+                as_tibble() %>%
+                separate(value, c("name1", "name2", "date", "file"), sep = "([._])",
+                         extra = "merge",
+                         fill = "left") %>%
+                unite(name, name1:name2) %>%
+                mutate(date = as.Date(date)) %>%
+                filter(date == max(date)) %>%
+                unite(path, name:file) %>%
+                mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
+                pull(path)
+        
+        # get most recent recipe
+        most_recent_recipe = all_files[grepl("recipe", all_files)] %>%
+                as_tibble() %>%
+                separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
+                         extra = "merge",
+                         fill = "left") %>%
+                unite(name, name1:name3) %>%
+                mutate(date = as.Date(date)) %>%
+                filter(date == max(date)) %>%
+                unite(path, name:file) %>%
+                mutate(path = gsub("_Rds", ".Rds", path)) %>%
+                pull(path)
+        
+        # use function to get record from bgg
+        suppressMessages({
+                raw_record = get_game_record(id) %>%
+                        mutate(number_designers = rowSums(across(starts_with("des_"))))
+        })
+        
+        # get training set
+        games_datasets = readr::read_rds(here::here("deployment", most_recent_games))
+        
+        record=   bind_rows(raw_record,
+                            games_datasets$train[0,])
+        
+        rec <- readr::read_rds(here::here("deployment", most_recent_recipe))
+        
+        baked_record = bake(rec, record)
+        
+        # to json
+        req = toJSON(baked_record)
+        
+        ###### end getting record
+        
+        ###### start predicting
+        # parse example from json
+        # parsed_example <- jsonlite::fromJSON(req) %>%
+        #         mutate_if(is.integer, as.numeric) %>%
+        #         mutate(timestamp = as_datetime(timestamp))
+        
+        most_recent_models = all_files[grepl("trained_models_obj", all_files)] %>%
+                as_tibble() %>%
+                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
+                         extra = "merge",
+                         fill = "left") %>%
+                unite(name, name1:name3) %>%
+                mutate(date = as.Date(date)) %>%
+                filter(date == max(date)) %>%
+                unite(path, name:file) %>%
+                mutate(path = gsub("_Rds", ".Rds", path)) %>%
+                pull(path)
+        
+        # get most recent models
+        models = readr::read_rds(here::here("deployment", most_recent_models))
+        
+        p <- c(0.05, .1, .2, 0.5, 0.8, .9, .95)
+        p_names <- purrr::map_chr(p, ~paste0("perc_", .x*100))
+        p_funs <- purrr::map(p, ~ purrr::partial(quantile, probs = .x, na.rm = TRUE)) %>% 
+                purrr::set_names(nm = p_names)
+        
+        # parsed_example <- jsonlite::fromJSON(req) %>%
+        #         mutate_if(is.integer, as.numeric) %>%
+        #         mutate(timestamp = as_datetime(timestamp))
+        # 
+        # load models
+        models = readr::read_rds(here::here("deployment", most_recent_models))
+        
+        preds_record = models %>%
+                select(outcome_type, 
+                       stan_lm) %>%
+                mutate(stan_lm_fit = map(stan_lm,
+                                         ~ .x %>% extract_fit_parsnip())) %>%
+                mutate(stan_lm_posterior_preds = map2(.x = stan_lm_fit,
+                                                      .y = stan_lm,
+                                                      ~ .x$fit %>%
+                                                              posterior_predict(.y %>% 
+                                                                                        extract_recipe() %>%
+                                                                                        bake(baked_record),
+                                                                                draws = 1000) %>%
+                                                              tidybayes::tidy_draws() %>%
+                                                              reshape2::melt(id.vars = c(".chain",
+                                                                               ".iteration",
+                                                                               ".draw")) %>%
+                                                              mutate(.row = as.integer(variable))))
+        
+        # melted record
+        melted_record = baked_record %>%
+                select(yearpublished, game_id, name, baverage, average) %>%
+                mutate(.row = row_number()) %>%
+                reshape2::melt(id.vars = c(".row",
+                                           "yearpublished",
+                                           "game_id",
+                                           "name")) %>%
+                rename(outcome = value,
+                       outcome_type = variable)
+        
+        # get sims
+        suppressWarnings({
+                sims = preds_record %>%
+                        select(outcome_type, stan_lm_posterior_preds) %>%
+                        unnest() %>%
+                        left_join(., melted_record %>%
+                                          select(.row, outcome_type, yearpublished, game_id, name, outcome),
+                                  by = c("outcome_type", ".row"))
+
+        })
+        
+        # # get extra info
+        # melted_record = baked_record %>%
+        #         select(outcome_type, yearpublished, game_id, name, baverage, average) %>%
+        #         reshape2::melt(id.vars = c("outcome_type",
+        #                                    "yearpublished",
+        #                                    "game_id",
+        #                                    "name")) %>%
+        #         rename(outcome = value,
+        #                outcome_type = variable)
+        
+        
+        # sims = sims %>%
+        #         nest(-outcome_type) %>%
+        #         mutate(outcome = case_when(outcome_type == 'baverage' ~ baked_record$baverage,
+        #                                    TRUE ~ baked_record$average)) %>%
+        #         mutate(game_id = baked_record$game_id) %>%
+        #         mutate(name = baked_record$name) %>%
+        #         mutate(yearpublished = baked_record$yearpublished)
+        
+        out = list("sims" = sims,
+                   "baked_record" = baked_record,
+                   "melted_record" = melted_record,
+                   "record" = req)
+        
+        return(out)
+        
+}
+
+dump("bake_and_predict_posterior", file="functions/bake_and_predict_posterior.R")
+
+plot_posterior = function(posterior_preds) {
+        
+        ### get background data for context
+        # get training set
+        all_files = list.files(here::here("deployment"))
+        
+        # # get dataset
+        most_recent_games = all_files[grepl("games_datasets", all_files)] %>%
+                as_tibble() %>%
+                separate(value, c("name1", "name2", "date", "file"), sep = "([._])",
+                         extra = "merge",
+                         fill = "left") %>%
+                unite(name, name1:name2) %>%
+                mutate(date = as.Date(date)) %>%
+                filter(date == max(date)) %>%
+                unite(path, name:file) %>%
+                mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
+                pull(path)
+        
+        # get training set
+        games_datasets = readr::read_rds(here::here("deployment", most_recent_games))
+        
+        # quantiles
+        baverage_quantiles = quantile(games_datasets$train$baverage, seq(0, 1, .01)) %>%
+                as.data.frame() %>%
+                rownames_to_column("perc") %>%
+                set_names(., c("perc", "value")) %>%
+                mutate(perc = gsub("%", "", perc)) %>%
+                mutate(outcome_type = 'baverage')
+        
+        # average quanties
+        average_quantiles = quantile(games_datasets$train$average, seq(0, 1, .01)) %>%
+                as.data.frame() %>%
+                rownames_to_column("perc") %>% 
+                set_names(., c("perc", "value")) %>%
+                mutate(perc = gsub("%", "", perc)) %>%
+                mutate(outcome_type = 'average')
+        
+        quantile_data = list("baverage" = baverage_quantiles,
+                             "average" = average_quantiles)
+        
+        # make a dummy plot
+        dummy = data.frame(outcome_type = "baverage",
+                           min = 5,
+                           max = 9) %>%
+                bind_rows(data.frame(outcome_type = "average",
+                                     min = 4,
+                                     max = 9)) %>%
+                melt(id.vars = c("outcome_type")) %>%
+                set_names(., c("outcome_type", "variable", "range"))
+        
+        quantile_dummy = bind_rows(quantile_data$baverage %>%
+                                           filter(perc %in% c(50, 90, 99)),
+                                   quantile_data$average %>%
+                                           filter(perc %in% c(50, 90, 99)))
+        
+        # make dummy plot
+        dummy_plot = ggplot(dummy, aes(x=range))+
+                facet_wrap(~outcome_type,
+                           ncol = 1,
+                           scales = "free_x")+
+                theme_phil()+
+                xlab("Predicted Value")+
+                geom_vline(data = quantile_dummy %>%
+                                   filter(perc == 50),
+                           aes(xintercept=value),
+                           col = 'grey10',
+                           linetype = 'dotted')+
+                geom_vline(data = quantile_dummy %>%
+                                   filter(perc == 90),
+                           aes(xintercept=value),
+                           col = 'grey10',
+                           linetype = 'dotted')+
+                geom_vline(data = quantile_dummy %>%
+                                   filter(perc == 99),
+                           aes(xintercept=value),
+                           col = 'grey10',
+                           linetype = 'dotted')+
+                geom_text(data = quantile_dummy %>%
+                                  filter(perc == 50),
+                          aes(x=value,
+                              y = 60),
+                          size =2,
+                          label = 'median game on bgg')+
+                geom_text(data = quantile_dummy %>%
+                                  filter(perc == 90),
+                          aes(x=value,
+                              y = 60),
+                          size = 2,
+                          label = 'top 10% on bgg')+
+                geom_text(data = quantile_dummy %>%
+                                  filter(perc == 99),
+                          aes(x=value,
+                              y = 60),
+                          size = 2,
+                          label = 'top 1% on bgg')+
+                #   coord_cartesian(xlim = c(4, 10))+
+                theme(panel.grid.minor = element_blank(),
+                      panel.grid.major = element_blank())
+        
+        
+        #### add sims from game to plot
+        plot_obj = posterior_preds$sims 
+        # plot
+        plot = dummy_plot + 
+                geom_histogram(data = plot_obj,
+                               aes(x=value),
+                               bins = 100,
+                               alpha = 0.7,
+                               fill = 'grey60',
+                               color = '#F0F0F0')+
+                geom_vline(data = plot_obj,
+                           aes(xintercept=outcome),
+                           alpha=0.9,
+                           col = "blue")+
+                geom_text(data = plot_obj,
+                          aes(x=outcome),
+                          label = "current bgg rating",
+                          size = 2,
+                          y= 30,
+                          alpha=0.9,
+                          col = "blue")+
+                facet_wrap(name~outcome_type,
+                           ncol = 1)+
+                xlab("Predicted Value")+
+                ylab("# of Simulations")+
+                coord_cartesian(xlim = c(4, 10),
+                                default = T)
+        
+        
+        return(plot)
+        
+}
+
+dump("plot_posterior", file = "functions/plot_posterior.R")
 

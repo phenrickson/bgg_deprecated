@@ -14,7 +14,7 @@ function(datasets_list,
                 left_join(., games_info %>% # join game info
                                   select(game_id, yearpublished, avgweight, minage, minplayers, maxplayers, playingtime),
                           by = c("game_id")) %>%
-                filter(yearpublished < year_split) %>% # use games prior to 2020 as our training set
+                filter(yearpublished <= year_split) %>% # use games prior to 2020 as our training set
                 left_join(., game_categories %>% # join categories
                                   mutate(category = gsub("\\)", "", gsub("\\(", "", category))) %>%
                                   mutate(category = tolower(paste("cat", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", category))), sep="_"))) %>%
@@ -92,7 +92,7 @@ function(datasets_list,
                 left_join(., games_info %>% # join game info
                                   select(game_id, yearpublished, avgweight, minage, minplayers, maxplayers, playingtime),
                           by = c("game_id")) %>%
-                filter(yearpublished >= year_split) %>% # use games prior to 2020 as our training set
+                filter(yearpublished > year_split) %>% 
                 left_join(., game_categories %>% # join categories
                                   mutate(category = gsub("\\)", "", gsub("\\(", "", category))) %>%
                                   mutate(category = tolower(paste("cat", gsub("[[:space:]]", "_", gsub("\\s+", " ", gsub("[[:punct:]]","", category))), sep="_"))) %>%
