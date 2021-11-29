@@ -290,9 +290,11 @@ library(bigQueryR)
 library(DBI)
 
 # authenticate
-bq_auth(path = keyring::key_get(service = "GCP"),
-        email = 'phil.henrickson@aebs.com',
-         use_oob=T)
+# bq_auth(path = keyring::key_get(service = "GCP"),
+#         email = 'phil.henrickson@aebs.com',
+#          use_oob=T)
+
+bq_auth(email = key_get(service='ae'))
 
 # get project credentials
 PROJECT_ID <- "gcp-analytics-326219"
