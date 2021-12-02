@@ -230,7 +230,6 @@ game_yearpublished<- games_daily %>%
         select(game_id, yearpublished) %>%
         arrange(game_id,)
 
-
 # game and artists
 game_artists <- df_list %>%
         select(game_id, artist_id) %>%
@@ -334,6 +333,7 @@ bigquerycon<-dbConnect(
 #                                 dataset_id = "bgg",
 #                                 table_id = "games_daily"))
 
+#### Write to GCP
 # append
 dbWriteTable(bigquerycon,
              name = "games_daily",

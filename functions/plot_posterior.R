@@ -6,9 +6,9 @@ function(posterior_preds) {
         all_files = list.files(here::here("deployment"))
         
         # # get dataset
-        most_recent_games = all_files[grepl("games_datasets", all_files)] %>%
+        most_recent_games = all_files[grepl("games_datasets_ratings", all_files)] %>%
                 as_tibble() %>%
-                separate(value, c("name1", "name2", "date", "file"), sep = "([._])",
+                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
                          extra = "merge",
                          fill = "left") %>%
                 unite(name, name1:name2) %>%

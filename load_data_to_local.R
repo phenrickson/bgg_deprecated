@@ -86,6 +86,77 @@ game_artists<-DBI::dbGetQuery(bigquerycon,
                                LEFT JOIN bgg.artist_ids b 
                                ON a.artist_id = b.artist_id')
 
+# game recplayers
+game_recplayers<- DBI::dbGetQuery(bigquerycon,
+                                  'SELECT * FROM bgg.game_recplayers')
+
+
+# pivot
+recplayers = game_recplayers %>%
+        mutate(recommended = 1) %>%
+        mutate(recplayers = as.numeric(gsub("\\+", "", recplayers))) %>%
+        mutate(recplayers = case_when(recplayers > 8 ~ "8_or_more",
+                                      TRUE ~ as.character(recplayers))) %>%
+        mutate(recplayers = paste("recplayers", recplayers, sep="_")) %>%
+        pivot_wider(names_from = c("recplayers"),
+                    values_from = c("recommended"),
+                    id_cols = c("game_id"),
+                    names_sep = "_",
+                    values_fn = min,
+                    values_fill = 0) %>%
+        select(game_id,
+               recplayers_1,
+               recplayers_2,
+               recplayers_3,
+               recplayers_4,
+               recplayers_5,
+               recplayers_6,
+               recplayers_7,
+               recplayers_8,
+               recplayers_8_or_more)
+
+# game bestplayers
+game_bestplayers<- DBI::dbGetQuery(bigquerycon,
+                                  'SELECT * FROM bgg.game_bestplayers')
+
+# pivot
+bestplayers = game_bestplayers %>%
+        mutate(recommended = 1) %>%
+        mutate(bestplayers = as.numeric(gsub("\\+", "", bestplayers))) %>%
+        mutate(bestplayers = case_when(bestplayers > 8 ~ "8_or_more",
+                                      TRUE ~ as.character(bestplayers))) %>%
+        mutate(bestplayers = paste("bestplayers", bestplayers, sep="_")) %>%
+        pivot_wider(names_from = c("bestplayers"),
+                    values_from = c("recommended"),
+                    id_cols = c("game_id"),
+                    names_sep = "_",
+                    values_fn = min,
+                    values_fill = 0) %>%
+        select(game_id,
+               bestplayers_1,
+               bestplayers_2,
+               bestplayers_3,
+               bestplayers_4,
+               bestplayers_5,
+               bestplayers_6,
+               bestplayers_7,
+               bestplayers_8,
+               bestplayers_8_or_more)
+
+# player counts
+playercounts = game_recplayers %>%
+        mutate(type = "recommended") %>%
+        rename(playercount = recplayers) %>%
+        bind_rows(., game_bestplayers %>%
+                          mutate(type = "best") %>%
+                          rename(playercount = bestplayers)) %>%
+        select(game_id, type, playercount) %>%
+        mutate(playercount = as.numeric(gsub("\\+", "", playercount))) %>%
+        filter(playercount > 1) %>%
+        mutate(playercount = case_when(playercount > 8 ~ "8_or_more",
+                                       TRUE ~ as.character(playercount))) %>%
+        arrange(game_id, playercount)
+
 # set parameters for setting up training set
 min_ratings = 200
 split_year = 2019
@@ -207,11 +278,12 @@ games_datasets= combine_and_split_bgg_datasets(datasets_list = list("active_game
 
 # output
 readr::write_rds(games_datasets, file = paste("local/games_datasets_", Sys.Date(), ".Rdata", sep=""))
+readr::write_rds(publisher_list, file = "local/publisher_list.Rdata")
+readr::write_rds(top_designers, file = "local/top_designers.Rdata")
+readr::write_rds(top_artists, file = "local/top_artists.Rdata")
+readr::write_rds(playercounts, file = "local/playercounts.Rdata")
 
 rm(list=ls())
-
-
-
 
 
 

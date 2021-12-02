@@ -18,9 +18,9 @@ function() {
                 pull(path)
         
         # # get dataset
-        most_recent_games = all_files[grepl("games_datasets", all_files)] %>%
+        most_recent_games = all_files[grepl("games_datasets_ratings", all_files)] %>%
                 as_tibble() %>%
-                separate(value, c("name1", "name2", "date", "file"), sep = "([._])",
+                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
                          extra = "merge",
                          fill = "left") %>%
                 unite(name, name1:name2) %>%
@@ -31,7 +31,7 @@ function() {
                 pull(path)
         
         # get most recent recipe
-        most_recent_recipe = all_files[grepl("recipe", all_files)] %>%
+        most_recent_recipe = all_files[grepl("recipe_ratings", all_files)] %>%
                 as_tibble() %>%
                 separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
                          extra = "merge",
