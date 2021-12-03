@@ -4,7 +4,9 @@ author: Phil Henrickson
 date: "`r Sys.Date()`"
 output: 
   html_document:
-    keep_md: true
+        toc: true
+        toc_depth: 3
+        keep_md: true
 ---
 
 This notebook is for examining current BGG Geek Ratings and computing different versions of these ratings, adjusting for complexity and recency bias. This is not a novel contribution, but this notebook is designed to keep the ratings active on a live data connection to BGG that we can refresh periodically.
@@ -493,7 +495,7 @@ complexity_adjusted_ratings <- complexity_model %>%
 
 ### Examining the Top Complexity-Adjusted Games
 
-We can put this all together to now look at games that are rated highly after adjusting for the effect of complexity. 
+We can put this all together to now look at games that are rated highly after adjusting for the effect of complexity. We'll look at the top 250 to keep it simple.
 
 ```{r examining the output for complexity adjusted ratings, warning=F, message=F}
 
@@ -508,6 +510,7 @@ complexity_adjusted_ratings %>%
                AdjustedRank = adj_rank,
                BGGRank = rank) %>%
         select(date, ID, Game, BGGRank, AdjustedRank, AdjustedRating, Complexity) %>%
+  head(250) %>%
         flextable() %>%
         flextable::autofit() %>%
         bg(j = c('Complexity'),
