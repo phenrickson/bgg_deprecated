@@ -41,6 +41,8 @@ library(bigrquery)
 PROJECT_ID <- "gcp-analytics-326219"
 BUCKET_NAME <- "test-bucket"
 
+# authorize
+bq_auth(email = "phil.henrickson@aebs.com")
 
 # establish connection
 bigquerycon<-dbConnect(
@@ -347,25 +349,42 @@ weight_func<- function(x) {
   
 }
 
+quant_func<- function(x) {
+  
+  breaks<-quantile(x, probs = seq(0, 1, .1), na.rm=T) %>% as.vector()
+ # breaks = weight_deciles
+  colorRamp=colorRampPalette(c("deepskyblue1", "white", "red"))
+  col_palette <- colorRamp(length(breaks))
+  mycut <- cut(x, 
+    breaks = breaks,
+    include.lowest = TRUE, 
+    right=T,
+    label = FALSE)
+  col_palette[mycut]
+  
+}
+
 # get top bgg games
 active_games %>%
         mutate(date = as.Date(timestamp),
                game_id = as.character(game_id),
-               name = abbreviate(name, minlength = 30)) %>%
+               name = abbreviate(name, minlength = 45)) %>%
         select(date,
-               #game_id, 
+               game_id, 
                name, rank, baverage, avgweight) %>%
         arrange(desc(baverage)) %>%
         mutate_if(is.numeric, round, 2) %>%
         rename(BGGRank = rank,
+               ID = game_id,
+               Game = name,
                GeekRating = baverage,
                Complexity = avgweight) %>%
+  select(date, ID, Game, BGGRank, GeekRating, Complexity) %>%
         head(100) %>%
         flextable() %>%
         flextable::autofit() %>%
         bg(j = c('Complexity'),
            bg = weight_func)
-
 ```
 
 We want a list of games that isn't so heavily skewed towards complexity. We want to "control for" the influence of complexity on the rating. That is, if we take the variation in the average ratings that isn't explained by complexity, which games still have high ratings? 
@@ -455,6 +474,7 @@ complexity_model %>%
         mutate_if(is.numeric, round, 2)
 
 ```
+
 We will adjust this using an approach similar to their Bayesian averaging methodology, adding 1000 ratings at the average of 5.5
 
 ```{r adjusted averages, warning=F, message=F}
@@ -479,14 +499,15 @@ We can put this all together to now look at games that are rated highly after ad
 
 # make flextable
 complexity_adjusted_ratings %>%
-        mutate(name = abbreviate(name, minlength = 30)) %>%
+        mutate(name = abbreviate(name, minlength = 45)) %>%
         mutate_if(is.numeric, round, 2) %>%
         rename(AdjustedRating = adj_baverage,
+               Game = name,
+               ID = game_id,
                Complexity = avgweight,
                AdjustedRank = adj_rank,
                BGGRank = rank) %>%
-        select(date, name, BGGRank, AdjustedRank, AdjustedRating, Complexity) %>%
-        head(100) %>%
+        select(date, ID, Game, BGGRank, AdjustedRank, AdjustedRating, Complexity) %>%
         flextable() %>%
         flextable::autofit() %>%
         bg(j = c('Complexity'),
@@ -1076,22 +1097,22 @@ adjusted_ratings<-complexity_adjusted_ratings_out %>%
              by = c("date", "game_id", "name"))
 
 fwrite(adjusted_ratings,
-      file = paste("adjusted_ratings_data/", Sys.Date(), ".csv", sep=""))
+      file = paste("adjust_bgg_ratings_data/", Sys.Date(), ".csv", sep=""))
 
 ```
 
 
-```{r write to gcp, eval=F}
-
-dbWriteTable(bigquerycon,
-             name = "complexity_adjusted_ratings",
-             append=T,
-             value = complexity_adjusted_ratings_out)
-
-dbWriteTable(bigquerycon,
-             name = "votes_added_ratings",
-             append=T,
-             value = votes_added_ratings_out)
-
-```
-
+<!-- # ```{r write to gcp, eval=F} -->
+<!-- #  -->
+<!-- # dbWriteTable(bigquerycon, -->
+<!-- #              name = "complexity_adjusted_ratings", -->
+<!-- #              append=T, -->
+<!-- #              value = complexity_adjusted_ratings_out) -->
+<!-- #  -->
+<!-- # dbWriteTable(bigquerycon, -->
+<!-- #              name = "votes_added_ratings",  -->
+<!-- #              append=T, -->
+<!-- #              value = votes_added_ratings_out) -->
+<!-- #  -->
+<!-- # ``` -->
+<!-- #  -->
