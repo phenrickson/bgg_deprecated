@@ -29,67 +29,70 @@ get_bgg_data_from_github<-function(input_date) {
 # dump
 dump("get_bgg_data_from_github", file="functions/get_bgg_data_from_github.R")
 
-get_collection <-
-        function(username_string) {
-                
-                # get collection data from specified users
-                collection_obj<-bggCollection$new(username = username_string)
-                
-                # expand
-                collection_obj$expand(variable_names = c("name",
-                                                         "type",
-                                                         "yearpublished",
-                                                         "rating",
-                                                         "numplays",
-                                                         "own",
-                                                         "preordered",
-                                                         "prevowned",
-                                                         "fortrade",
-                                                         "want",
-                                                         "wanttoplay",
-                                                         "wanttobuy",
-                                                         "wishlist",
-                                                         "wishlistpriority"))
-                
-                # convert to dataframe
-                collection_data<-collection_obj$data %>%
-                        rename(game_id = objectid) %>%
-                        mutate(username = username_string,
-                               date = Sys.Date(),
-                               name = gsub(",", " ", name, fixed = T)) %>%
-                        mutate_if(is.logical, .funs = ~ case_when(. == T ~ 1,
-                                                                  .== F ~ 0)) %>%
-                        select(username,
-                               date,
-                               game_id,
-                               type,
-                               rating,
-                               own,
-                               preordered,
-                               prevowned,
-                               fortrade,
-                               want,
-                               wanttoplay,
-                               wanttobuy,
-                               wishlist,
-                               wishlistpriority)
-                
-                # check for duplicates
-                dupes = which(duplicated(collection_data$game_id)==T)
-                
-                if (length(dupes) > 0) {
-                        collection_data_out = collection_data[-dupes]
-                } else {
-                        collection_data_out = collection_data
-                }
-                
-                # convert to tibble
-                collection_data_out = collection_data_out %>%
-                        as_tibble()
-                
-                return(collection_data_out)
-                
+get_collection <- function(username_string) {
+        
+        source("functions/retry.R")
+        
+        # get collection data from specified users
+        collection_obj<- suppressWarnings({retry(bggCollection$new(username = username_string),
+                                                 maxErrors = 5,
+                                                 sleep=5)})
+        
+        # expand
+        collection_obj$expand(variable_names = c("name",
+                                                 "type",
+                                                 "yearpublished",
+                                                 "rating",
+                                                 "numplays",
+                                                 "own",
+                                                 "preordered",
+                                                 "prevowned",
+                                                 "fortrade",
+                                                 "want",
+                                                 "wanttoplay",
+                                                 "wanttobuy",
+                                                 "wishlist",
+                                                 "wishlistpriority"))
+        
+        # convert to dataframe
+        collection_data<-collection_obj$data %>%
+                rename(game_id = objectid) %>%
+                mutate(username = username_string,
+                       date = Sys.Date(),
+                       name = gsub(",", " ", name, fixed = T)) %>%
+                mutate_if(is.logical, .funs = ~ case_when(. == T ~ 1,
+                                                          .== F ~ 0)) %>%
+                select(username,
+                       date,
+                       game_id,
+                       type,
+                       rating,
+                       own,
+                       preordered,
+                       prevowned,
+                       fortrade,
+                       want,
+                       wanttoplay,
+                       wanttobuy,
+                       wishlist,
+                       wishlistpriority)
+        
+        # check for duplicates
+        dupes = which(duplicated(collection_data$game_id)==T)
+        
+        if (length(dupes) > 0) {
+                collection_data_out = collection_data[-dupes]
+        } else {
+                collection_data_out = collection_data
         }
+        
+        # convert to tibble
+        collection_data_out = collection_data_out %>%
+                as_tibble()
+        
+        return(collection_data_out)
+        
+}
 
 # dump
 dump("get_collection", file="functions/get_collection.R")
@@ -1929,3 +1932,33 @@ get_game_comparables = function(id) {
 }
 
 dump("get_game_comparables", file="functions/get_game_comparables.R")
+
+
+# function for rerunning on errors
+retry <- function(expr, isError=function(x) "try-error" %in% class(x), maxErrors=5, sleep=0) {
+        
+        require(futile.logger)
+        require(utils)
+        
+        attempts = 0
+        retval = try(eval(expr))
+        while (isError(retval)) {
+                attempts = attempts + 1
+                if (attempts >= maxErrors) {
+                        msg = sprintf("retry: too many retries [[%s]]", capture.output(str(retval)))
+                        flog.fatal(msg)
+                        stop(msg)
+                } else {
+                        msg = sprintf("retry: error in attempt %i/%i [[%s]]", attempts, maxErrors, 
+                                      capture.output(str(retval)))
+                        flog.error(msg)
+                        warning(msg)
+                }
+                if (sleep > 0) Sys.sleep(sleep)
+                retval = try(eval(expr))
+        }
+        return(retval)
+}
+
+dump("retry", file = "functions/retry.R")
+

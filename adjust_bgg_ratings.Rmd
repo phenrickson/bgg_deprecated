@@ -518,7 +518,7 @@ complexity_adjusted_ratings %>%
 
 ```
 
-This gets us a list of games that is wildly different than before, and it's a list of games that are much more palatable to "normal people". In my mind, Crokinole taking the top spot makes a ton of sense in my mind and I will die on this hill.
+This gets us a list of games that is wildly different than before, and it's a list of games that are much more palatable to "normal people". In my mind, Crokinole taking the top spot makes a ton of sense and I will die on this hill.
 
 ### Comparing Geek and Complexity Adjusted Ratings
 
