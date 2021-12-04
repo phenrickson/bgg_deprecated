@@ -4,9 +4,11 @@ function(username_string) {
         source("functions/retry.R")
         
         # get collection data from specified users
-        collection_obj<- suppressWarnings({retry(bggCollection$new(username = username_string),
+        collection_obj<- suppressWarnings({
+                        retry(bggCollection$new(username = username_string),
                                                  maxErrors = 5,
-                                                 sleep=5)})
+                                                 sleep=10)
+                        })
         
         # expand
         collection_obj$expand(variable_names = c("name",

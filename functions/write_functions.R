@@ -34,9 +34,11 @@ get_collection <- function(username_string) {
         source("functions/retry.R")
         
         # get collection data from specified users
-        collection_obj<- suppressWarnings({retry(bggCollection$new(username = username_string),
+        collection_obj<- suppressWarnings({
+                        retry(bggCollection$new(username = username_string),
                                                  maxErrors = 5,
-                                                 sleep=5)})
+                                                 sleep=10)
+                        })
         
         # expand
         collection_obj$expand(variable_names = c("name",
@@ -1961,4 +1963,33 @@ retry <- function(expr, isError=function(x) "try-error" %in% class(x), maxErrors
 }
 
 dump("retry", file = "functions/retry.R")
+
+# function for cleaning up names
+rename_func<-function(x) {
+        
+        x<-gsub("cat_memory", "cat_memory_game", x)
+        x<-gsub("cat_spiessecret_agents", "cat_spies_secret_agents", x)
+        x<-gsub("cat_","", x)
+        x<-gsub("mech_","", x)
+        x<-gsub("pub_","", x)
+        x<-gsub("des_","", x)
+        x<-gsub("avgweight", "Average Weight", x)
+        x<-gsub("yearpublished", "Year Published", x)
+        x<-gsub("minage", "Min Age", x)
+        x<-gsub("playingtime", "Playing Time", x)
+        x<-gsub("maxplayers", "Max Players", x)
+        x<-gsub("minplayers", "Min Players", x)
+        x<-gsub("_", " ", x)
+        
+        x = str_to_title(x)
+        x = gsub("World War Ii", "World War II", x)
+        x = gsub("Gmt", "GMT", x)
+        x = gsub("Cmon", "CMON", x)
+        x = gsub("Zman", "ZMan", x)
+        x = gsub("Movies Tv", "Movies TV", x)
+        x
+        
+}
+
+dump("rename_func", file = "functions/rename_func.R")
 
