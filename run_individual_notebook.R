@@ -1,10 +1,15 @@
 # run user notebook
-user_list = c("legendarydromedary",
-              "lmageezy",
-              "C3Gaming",
-              "innerkudzu",
-              "Karmatic",
-              "camerinjohnston")
+# user_list = c("legendarydromedary",
+#               "lmageezy",
+#               "C3Gaming",
+#               "innerkudzu",
+#               "Karmatic",
+#               "camerinjohnston")
+
+library(tidyverse)
+library(foreach)
+
+user_list = c("jyothi")
 
 # run through
 foreach(i=1:length(user_list)) %do% {
