@@ -152,7 +152,7 @@ playercounts = game_recplayers %>%
                           rename(playercount = bestplayers)) %>%
         select(game_id, type, playercount) %>%
         mutate(playercount = as.numeric(gsub("\\+", "", playercount))) %>%
-        filter(playercount > 1) %>%
+        filter(playercount > 0) %>%
         mutate(playercount = case_when(playercount > 8 ~ "8_or_more",
                                        TRUE ~ as.character(playercount))) %>%
         arrange(game_id, playercount)

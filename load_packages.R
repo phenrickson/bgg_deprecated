@@ -154,6 +154,7 @@ conflict_prefer("year", "lubridate")
 conflict_prefer("quarter", "lubridate")
 conflict_prefer("compose", "flextable")
 conflict_prefer("melt", "reshape2")
+conflict_prefer("set_names", "magrittr")
 
 ##file.create(".Rprofile.")
 #file.edit(".Rprofile")
