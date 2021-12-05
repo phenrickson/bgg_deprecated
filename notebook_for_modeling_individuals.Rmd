@@ -6,7 +6,6 @@ output:
   html_document:
         toc: true
         toc_depth: 3
-        keep_md: true
 params:
   username: "mrbananagrabber"
   end_training_year: 2020
@@ -34,31 +33,50 @@ library(workflows)
 library(rsample)
 
 set_flextable_defaults(theme_fun = theme_booktabs,
-                       font.color = "grey10",
+                       font.color = "black",
   padding.bottom = 6, 
   padding.top = 6,
   padding.left = 6,
   padding.right = 6,
   background.color = "white")
 
-my_caption = list(labs(caption = paste(paste("Data from boardgamegeek.com as of", Sys.Date()),
-                        paste("Data and analysis at github.com/phenrickson/bgg"), sep="\n")))
-
 ```
 
-
-Load previously queried training and test data.
+Load previously queried training and test data from the local layer.
 
 ```{r load previously stored data, warning=F, mesage=F, echo=F}
 
-load("/Users/Phil/OneDrive - AE Business Solutions/Documents/board_game_projects/bgg/games_train.Rdata")
-load("/Users/Phil/OneDrive - AE Business Solutions/Documents/board_game_projects/bgg/games_test.Rdata")
+#load("/Users/Phil/OneDrive - AE Business Solutions/Documents/board_game_projects/bgg/games_train.Rdata")
+#load("/Users/Phil/OneDrive - AE Business Solutions/Documents/board_game_projects/bgg/games_test.Rdata")
+# source("functions/get_models_and_training_data.R")
+# bar= get_models_and_training_data()
+
+all_files = list.files(here::here("local"))
+        
+most_recent_games = all_files[grepl("games_datasets", all_files)] %>%
+          as_tibble() %>%
+          separate(value, c("name1", "name2", "date", "file"), sep = "([._])",
+                   extra = "merge",
+                   fill = "left") %>%
+          unite(name, name1:name2) %>%
+          mutate(date = as.Date(date)) %>%
+          filter(date == max(date)) %>%
+          unite(path, name:file) %>%
+          mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
+          pull(path)
+
+games_datasets = readr::read_rds(here::here("local", most_recent_games))
+
+most_recent_date = as.Date(games_datasets$train$timestamp[1])
+
+my_caption = list(labs(caption = paste(paste("Data from boardgamegeek.com as of", most_recent_date),
+                        paste("Data and analysis at github.com/phenrickson/bgg"), sep="\n")))
 
 ```
 
 Set function for displaying probabilities
 
-```{r set col_func}
+```{r functions, echo = F, warning=F, message=F}
 
 col_func<- function(x) {
   
@@ -75,10 +93,6 @@ col_func<- function(x) {
   col_palette[mycut]
   
 }
-
-```
-
-```{r functions, echo = F, warning=F, message=F}
 
 # get user collection
 get_user_collection = function(username) {
@@ -182,8 +196,8 @@ bake_user_collection = function(data,
                 step_mutate_at(starts_with("played_"),
                                fn = ~ replace_na(., 0)) %>%
                 step_mutate(number_mechanics = rowSums(across(starts_with("mech_"))),
-                            number_categories = rowSums(across(starts_with("cat_"))),
-                            number_artists = rowSums(across(starts_with("art_")))) %>%
+                            number_categories = rowSums(across(starts_with("cat_")))) %>%
+              #              number_artists = rowSums(across(starts_with("art_")))) %>%
                 step_log(playingtime,
                          time_per_player,
                          offset = 1) %>%
@@ -528,6 +542,7 @@ model_coefs_user = function(models, effect_size) {
                 
                 x<-gsub("cat_memory", "cat_memory_game", x)
                 x<-gsub("cat_spiessecret_agents", "cat_spies_secret_agents", x)
+                x<-gsub("cat_deduction", "social_deduction", "x")
                 x<-gsub("cat_","", x)
                 x<-gsub("mech_","", x)
                 x<-gsub("pub_","", x)
@@ -703,7 +718,6 @@ analyse_user = function(username,
         # table
         ft_preds = test_preds %>%
                 filter(yearpublished < 2023) %>%
-                filter(game_id != 295374) %>% # long shot effect
                 select(username, yearpublished, outcome_type, game_id, name, glmnet) %>%
                 spread(outcome_type, glmnet) %>%
                 arrange(own) %>%
@@ -751,15 +765,14 @@ analyse_user = function(username,
 
 ```
 
+Fit models and analyze collection for **`r params$username`**.
 
-Fit models and analyze collection for `r params$username`.
-
-```{r use function, echo=F, warning=F, message=F}
+```{r use function, results = 'hide', echo=F, warning=F, message=F}
 
 #use all in one go
 foo = analyse_user(params$username,
-                   data = bind_rows(games_train,
-                                    games_test),
+                   data = bind_rows(games_datasets$train,
+                                    games_datasets$test),
                    year_split = params$end_training_year)
 
 ```
@@ -792,17 +805,17 @@ rm(temp_own,
 
 ```
 
-## Coefficients for User
+## Coefficients for `r params$username`
 
 Examine coefficients from the trained model.
 
-```{r plot coefficients, echo=F, warning=F, message=F, fig.height=10, fig.width=10}
+```{r plot coefficients, echo=F, warning=F, message=F, fig.height=11, fig.width=10}
 
 foo$coefs
 
 ```
 
-## Separation Plot and Assessment
+## Assessment
 
 Examine separation plot for training set (cross validated predictions).
 
@@ -840,7 +853,7 @@ foo$oos_assessment %>%
 
 ```
 
-## Predicted Games in Collection from Resampling, `r paste(params$end_training_year-5, "-", params$end_training_year-1, sep="")`
+## Predicted Games in Collection from Training
 
 Examine top games from resampling.
 
@@ -851,29 +864,131 @@ foo$oos_table %>%
 
 ```
 
-Examine top 15 games from each year.
+### Most and Least Likely Games
+
+What game does the model think `r params$username` is **most likely to own** that is **not** in their collection?
+
+```{r not in collection but likely to own, warning=F, message=F}
+
+foo$oos %>%
+  filter(actual_own !=1) %>%
+  slice_max(., order_by = pred_own, n=1, with_ties = F) %>%
+  select(username, yearpublished, game_id, name, pred_own) %>%
+  mutate(pred_own = round(pred_own, 3)) %>%
+  flextable()
+
+```
+
+What game does the model think `r params$username` is **least likely to own** that **is** in their collection?
+
+```{r in collection least likely to own, warning=F, message=F}
+
+foo$oos %>%
+  filter(actual_own ==1) %>%
+  slice_min(., order_by = pred_own, n=1, with_ties = F) %>%
+  select(username, yearpublished, game_id, name, pred_own) %>%
+  flextable()
+
+```
+
+
+### Top Games by Year
+
+Top 25 games most likely to be owned by the user in each year, highlighting in blue the games that the user has owned/played.
 
 ```{r top games from oos by year, echo=F, warning=F, message=F}
 
-foo$oos %>%
-  filter(yearpublished > (params$end_training_year-5)) %>%
+# # games owned
+# games_owned = foo$baked_data$training %>%
+#   bind_rows(., 
+#             foo$baked_data$test) %>%
+#   select(yearpublished, game_id, name, contains("own_")) %>%
+#   melt(., id.vars = c("yearpublished", "game_id", "name")) %>%
+#   filter(value == 1) %>%
+#   pull(name) %>%
+#   unique()
+
+# games played
+games_played = foo$baked_data$training %>%
+  bind_rows(., 
+            foo$baked_data$test) %>%
+  select(yearpublished, game_id, name, contains("played_")) %>%
+  melt(., id.vars = c("yearpublished", "game_id", "name")) %>%
+  filter(value == 1) %>%
+  pull(name) %>%
+  unique()
+
+# get top 10 games by year
+# year_table = foo$preds %>%
+#   filter(yearpublished < 2023) %>%
+#                 select(username, yearpublished, outcome_type, game_id, name, glmnet) %>%
+#                 spread(outcome_type, glmnet) %>%
+#                 arrange(own) %>%
+#                 mutate_if(is.numeric, round, 2) %>%
+#                 group_by(yearpublished) %>%
+#                 mutate(game_id = as.character(game_id),
+#                        yearpublished = as.character(yearpublished)) %>%
+#                 select(username, yearpublished, game_id, name, everything()) %>%
+#           arrange(yearpublished, desc(own)) %>%
+#           mutate(rank = row_number()) %>%
+#           select(username, yearpublished, game_id, name, rank, everything()) %>%
+#   rename(pred_own = own,
+#          pred_played = played) %>%
+ # bind_rows(foo$oos
+year_table = foo$oos %>%
+  filter(yearpublished > (params$end_training_year-9)) %>%
   group_by(yearpublished) %>%
-  slice_max(., order_by = pred_own, n=15) %>%
-  mutate(year_rank = row_number()) %>%
-  arrange(yearpublished, desc(pred_own)) %>%
-  #mutate(yearpublished = as.numeric(yearpublished)) %>%
-  select(username, yearpublished, year_rank, game_id, name, everything()) %>%
+  slice_max(., order_by = pred_own, n=25, with_ties = F) %>%
+  select(username, yearpublished, name) %>%
+  pivot_wider(., id_cols = "username",
+              names_from = c("yearpublished"),
+              values_from = c("name")) %>%
+  unnest() %>%
+  select(-username) %>%
+  mutate(rank = row_number()) %>%
+  select(rank, everything())
+
+# get column names
+year_names = names(year_table[,-1])
+
+# get col funcs
+bg_picker <- scales::col_factor(
+    palette = "deepskyblue1",
+    na.color = "white",
+    ordered=F,
+    levels = games_played)
+
+# display table with colors
+year_table %>%
   flextable() %>%
   flextable::autofit() %>%
-  # bg(., i = ~ (as.numeric(yearpublished) %% 2 == 1),
-  #    bg = 'grey90') %>%
-  # bg(., j = c("pred_played", "pred_own"),
-  #    bg = col_func) %>%
-    bg(., i = ~ actual_own == 1,
-     bg = 'deepskyblue1') %>%
-  set_caption(paste("Top Games for User from Training By Year, ", params$end_training_year-5, "-", params$end_training_year-1, sep=""))
+  bg(., j = year_names,
+     bg = bg_picker) %>%
+  fontsize(size = 9, part = "all")
+
+  
+# foo$oos %>%
+#   filter(yearpublished > (params$end_training_year-5)) %>%
+#   group_by(yearpublished) %>%
+#   slice_max(., order_by = pred_own, n=15) %>%
+#   mutate(year_rank = row_number()) %>%
+#   arrange(yearpublished, desc(pred_own)) %>%
+#   #mutate(yearpublished = as.numeric(yearpublished)) %>%
+#   select(username, yearpublished, year_rank, game_id, name, everything()) %>%
+#   flextable() %>%
+#   flextable::autofit() %>%
+#   # bg(., i = ~ (as.numeric(yearpublished) %% 2 == 1),
+#   #    bg = 'grey90') %>%
+#   # bg(., j = c("pred_played", "pred_own"),
+#   #    bg = col_func) %>%
+#     bg(., i = ~ actual_own == 1,
+#      bg = 'deepskyblue1') %>%
+#   set_caption(paste("Top Games for User from Training By Year, ", params$end_training_year-5, "-", params$end_training_year-1, sep=""))
 
 ```
+
+
+### Interactive Table
 
 Interactive table for predictions from resampling.
 
@@ -888,19 +1003,19 @@ foo$oos %>%
 
 ```
 
-## Predicted Games in Collection `r paste(params$end_training_year, "-", params$end_training_year+1, sep="")`
+## Predicted Games in Collection `r paste(params$end_training_year, " and On", sep="")`
 
-Examine the top games for `r paste(params$end_training_year, "-", params$end_training_year+1, sep="")`
+Examine the top games for the test set.
 
 ```{r top games from preds, echo=F, warning=F, message=F}
 
 foo$preds_table %>%
-  set_caption(paste("Top Predicted Games for User,", params$end_training_year, "-", params$end_training_year+1, sep=""))
+  set_caption(paste("Top Predicted Games for User, ", params$end_training_year, " and On", sep=""))
 
 
 ```
 
-Interactive table for `r paste(params$end_training_year, "-", params$end_training_year+1, sep="")`
+Interactive table for `r paste(params$end_training_year, " and On", sep="")`
 
 ```{r interactive preds, echo=F, warning=F, message=F}
 
@@ -921,4 +1036,3 @@ foo$preds %>%
   DT::datatable()
 
 ```
-
