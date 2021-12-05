@@ -1,0 +1,73 @@
+---
+title: "Finding Comparable Games"
+author: "Phil Henrickson"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    keep_md: yes
+  word_document: default
+---
+
+```{r global settings, echo=F, warning=F, message=F}
+
+knitr::opts_chunk$set(echo = F,
+                      error=F,
+                      dev="png",
+                      fig.width = 9,
+                      fig.height = 6)
+
+options(knitr.duplicate.label = "allow")
+
+options(scipen=999)
+
+source("load_packages.R")
+source("theme_phil.R")
+library(plumber)
+rm(a)
+
+```
+
+```{r flextable settings, echo=F, warning=F, message=F}
+
+library(webshot2)
+library(flextable)
+set_flextable_defaults(theme_fun = theme_alafoli,
+                       font.color = "grey10",
+  padding.bottom = 6, 
+  padding.top = 6,
+  padding.left = 6,
+  padding.right = 6,
+  background.color = "white")
+
+```
+
+```{r load functions, warning=F, message=F}
+
+# function for loading game by id
+source("functions/get_game_comparables.R")
+
+```
+
+This notebook is for finding similar 
+```{r run and get for game, warning=F, message=F}
+
+run = get_game_comparables(306735)
+
+```
+
+```{r examine nplot, fig.height=8, fig.width=10}
+
+run$neighbors_plot
+
+```
+
+## Table of Comparables
+
+```{r examine table}
+
+run$neighbors_table
+
+```
+
+
+
