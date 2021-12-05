@@ -1794,7 +1794,7 @@ get_game_comparables = function(id) {
                                Published = yearpublished,
                                Neighbor = neighbor,
                                Rank = rank) %>%
-                        select(Game, Comparing_By, Rank, ID, Published, Neighbor, BGGRating, GeekRating, Complexity) %>%
+                        select(Comparing_By, Rank, ID, Published, Neighbor, BGGRating, GeekRating, Complexity) %>%
                         mutate_if(is.numeric, round, 2) %>%
                         arrange(desc(Comparing_By))
                 
@@ -1849,6 +1849,7 @@ get_game_comparables = function(id) {
         
         # convert to flextable
         neighbors_table_ft = neighbors_table %>%
+                filter(Rank <=10) %>%
                 flextable() %>%
                 flextable::autofit() %>%
                 set_caption(paste("Comparables games to", game, sep=" ")) %>%
@@ -1885,8 +1886,8 @@ get_game_comparables = function(id) {
         background = plot_df %>%
                 ggplot(., aes(x=variable,
                               y = value))+
-                geom_jitter(alpha=0.025,
-                            col = 'grey70',
+                geom_jitter(alpha=0.05,
+                            col = 'grey60',
                             position = pos)+
                 theme_phil()+
                 geom_hline(yintercept = 0,
@@ -1929,7 +1930,7 @@ get_game_comparables = function(id) {
                                  position = pos2,
                                  max.overlaps=25,
                                  show.legend=F,
-                                 size = 2)+
+                                 size = 3)+
                 guides(label = "none",
                        color = "none",
                        size = "none")+
