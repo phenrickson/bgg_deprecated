@@ -1567,6 +1567,9 @@ dump("bake_and_predict_avgweight_and_ratings", file="functions/bake_and_predict_
 # function for getting game comparables
 get_game_comparables = function(id) {
         
+        # load function
+        source("functions/get_game_record.R")
+        
         # get unsupervised object previously run
         all_files = list.files(here::here("deployment"))
         files = all_files[grepl("unsupervised", all_files)]
@@ -1600,6 +1603,7 @@ get_game_comparables = function(id) {
         # load
         unsupervised_obj = readr::read_rds(here::here("deployment", most_recent_unsupervised_obj))
         unsupervised_neighbors = readr::read_rds(here::here("deployment", most_recent_unsupervised_neighbors))
+        recipe_prep = readr::read_rds(here::here("deployment", "unsupervised_recipe_prep.Rdata"))
         
         # check to see if id is in the unsupervised object
         check_obs = unsupervised_obj %>%
@@ -1613,6 +1617,11 @@ get_game_comparables = function(id) {
                 filter(game_id == id) %>%
                 pull(name) %>%
                 unique()
+        
+        # get table of games
+        active_games = unsupervised_obj[1,] %>% select(pca_with_data) %>% unnest() %>%
+                arrange(desc(baverage)) %>%
+                mutate(rank = row_number())
         
         ### if game record is in our previously run analysis, we can just look it up
         
@@ -1651,14 +1660,17 @@ get_game_comparables = function(id) {
                 paste("game not in existing dataset; pulling game info from BGG and calculating...")
                 
                 # if the game isn't present, we need to go grab it and then add it to our existing games
-                game = get_game_record(id) %>%
+                game_record = get_game_record(id) %>%
                         mutate(number_designers = rowSums(across(starts_with("des_"))))
+                
+                game = game_record %>%
+                        pull(name)
                 
                 # nest for placemen
                 # bak
                 baked_game = recipe_prep %>%
-                        prep(games_train, strings_as_factor = F) %>%
-                        bake(new_data = bind_rows(game, games_train[0,]))
+                        prep(recipe_prep$template, strings_as_factor = F) %>%
+                        bake(new_data = bind_rows(game_record, recipe_prep$template[0,]))
                 
                 # nest
                 nested_game_data<- baked_game %>%
@@ -1724,7 +1736,7 @@ get_game_comparables = function(id) {
                                                       slice_min(dist, n=50, with_ties = T) %>%
                                                       mutate(dist_rank=row_number()))) %>%
                         mutate(neighbors = map(obs_dist,
-                                               ~ left_join(.x, game %>%
+                                               ~ left_join(.x, game_record %>%
                                                                    mutate(game_id = as.character(game_id)),
                                                            by = c("game_id")) %>%
                                                        select(game_id, name, closest, dist, dist_rank) %>% 
@@ -1934,7 +1946,6 @@ get_game_comparables = function(id) {
 }
 
 dump("get_game_comparables", file="functions/get_game_comparables.R")
-
 
 # function for rerunning on errors
 retry <- function(expr, isError=function(x) "try-error" %in% class(x), maxErrors=5, sleep=0) {
