@@ -1680,6 +1680,7 @@ unsupervised_neighbors = unsupervised_obj %>%
 readr::write_rds(unsupervised_obj, file = paste("deployment/unsupervised_obj_", Sys.Date(), ".Rdata", sep=""))
 readr::write_rds(unsupervised_clusters, file = paste("deployment/unsupervised_clusters_", Sys.Date(), ".Rdata", sep=""))
 readr::write_rds(unsupervised_neighbors, file = paste("deployment/unsupervised_neighbors_", Sys.Date(), ".Rdata", sep=""))
+readr::write_rds(recipe_prep, file = paste("deployment/unsupervised_recipe_prep",".Rdata", sep=""))
 
 ```
 
@@ -1734,9 +1735,23 @@ get_game_comparables = function(id) {
                 mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
                 pull(path)
   
+    # get most recent neighbors
+  most_recent_unsupervised_neighbors = all_files[grepl("unsupervised_neighbors", all_files)] %>%
+                as_tibble() %>%
+                separate(value, c("name1", "name2", "date", "file"), sep = "([._])",
+                         extra = "merge",
+                         fill = "left") %>%
+                unite(name, name1:name2) %>%
+                mutate(date = as.Date(date)) %>%
+                filter(date == max(date)) %>%
+                unite(path, name:file) %>%
+                mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
+                pull(path)
+  
   # load
   unsupervised_obj = readr::read_rds(here::here("deployment", most_recent_unsupervised_obj))
   unsupervised_neighbors = readr::read_rds(here::here("deployment", most_recent_unsupervised_neighbors))
+  recipe_prep = readr::read_rds(here::here("deployment", "unsupervised_recipe_prep.Rdata"))
         
   # check to see if id is in the unsupervised object
   check_obs = unsupervised_obj %>%
@@ -2090,3 +2105,19 @@ run$neighbors_plot
 run$neighbors_table
 
 ```
+
+
+
+now test out a kickstarter game
+
+```{r run function, warning=F, fig.height=8, fig.width=8, message=F}
+
+run = get_game_comparables(350782)
+
+run$neighbors_plot
+
+run$neighbors_table
+
+
+```
+

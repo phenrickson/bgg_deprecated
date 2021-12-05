@@ -1,6 +1,6 @@
 # run kickstarter file
 
-u = "https://www.reddit.com/r/boardgames/comments/r41trw/crowdfunding_roundup_nov_28_2021_35_ending_soon/"
+u = "https://www.reddit.com/r/boardgames/comments/r9erfw/crowdfunding_roundup_dec_5_2021_20_ending_soon/"
 
 file = as_tibble(u) %>%
         rename(link = value) %>%

@@ -5,11 +5,16 @@
 #               "innerkudzu",
 #               "Karmatic",
 #               "camerinjohnston")
+#user_list = c("jyothi")
+# user_list = c("Booned",
+#               "QWERTYMartin")
+# user_list = c("Aeszett")
 
 library(tidyverse)
 library(foreach)
 
-user_list = c("jyothi")
+user_list = c("mrbananagrabber",
+              "GOBbluth89")
 
 # run through
 foreach(i=1:length(user_list)) %do% {
