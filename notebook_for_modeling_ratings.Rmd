@@ -515,6 +515,9 @@ How do we counter this? My current solution is to create a whitelist of publishe
 ```{r look at publishers and create a whitelist, warning=F, message=F}
 
 publisher_list = c(51,
+                   102,
+                   196,
+                   396,
                    1027,
                    21847,
                    10,
@@ -3679,7 +3682,7 @@ prepped_recipe_ratings = recipe_ratings %>%
 trained_models_obj = ratings_models
 
 # save
-readr::write_rds(games_datasets, file = paste("deployment/games_datasets_", Sys.Date(), ".Rdata", sep=""))
+readr::write_rds(games_datasets, file = paste("deployment/games_datasets_ratings_", Sys.Date(), ".Rdata", sep=""))
 readr::write_rds(prepped_recipe_ratings, file = paste("deployment/prepped_recipe_ratings_", Sys.Date(), ".Rds", sep=""))
 readr::write_rds(trained_models_obj, file = paste("deployment/trained_models_obj_", Sys.Date(), ".Rds", sep=""))
 
