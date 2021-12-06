@@ -537,27 +537,7 @@ model_coefs_user = function(models, effect_size) {
                                                   tidy())) %>%
                 select(username, outcome_type, glmnet_coefs)
         
-        # function for renaming
-        rename_func<-function(x) {
-                
-                x<-gsub("cat_memory", "cat_memory_game", x)
-                x<-gsub("cat_spiessecret_agents", "cat_spies_secret_agents", x)
-                x<-gsub("cat_deduction", "social_deduction", "x")
-                x<-gsub("cat_","", x)
-                x<-gsub("mech_","", x)
-                x<-gsub("pub_","", x)
-                x<-gsub("des_","", x)
-                x<-gsub("avgweight", "Average Weight", x)
-                x<-gsub("yearpublished", "Year Published", x)
-                x<-gsub("minage", "Min Age", x)
-                x<-gsub("playingtime", "Playing Time", x)
-                x<-gsub("maxplayers", "Max Players", x)
-                x<-gsub("minplayers", "Min Players", x)
-                x<-gsub("_", " ", x)
-                
-                str_to_title(x)
-                
-        }
+      source("functions/rename_func.R")
         
         # function for plotting
         plot_coef_function <- function(coefs,
@@ -815,6 +795,84 @@ foo$coefs
 
 ```
 
+## Visualizing Predictors for `r params$username`'s Collection
+
+Examine density of most important features for predicting whether user owns a game.
+
+```{r get top predictors, warning=F, message=F, fig.height=10, fig.width=10}
+
+top_predictors = foo$models %>%
+  filter(outcome_type == 'own') %>%
+  mutate(glmnet_coefs = map(glmnet_fit, ~ .x %>% extract_fit_parsnip() %>%
+                                                  tidy())) %>%
+  select(username, outcome_type, glmnet_coefs) %>%
+  unnest() %>%
+  mutate(abs = abs(estimate)) %>%
+  filter(term != '(Intercept)') %>%
+  slice_max(., order_by = abs,
+            n = 16,
+            with_ties = F) %>%
+  pull(term)
+
+
+source("functions/rename_func.R")
+
+top_predictors_levels = rename_func(top_predictors)
+
+
+ predictor_plot = foo$models %>%
+  filter(outcome_type == 'own') %>%
+  select(username, outcome_type, data) %>%
+  unnest() %>%
+  mutate(outcome = case_when(outcome == 0 ~ 'no',
+                                  TRUE ~ 'yes')) %>%
+  select(username,
+         outcome_type,
+         outcome,
+         game_id,
+         name,
+         yearpublished,
+         one_of(top_predictors)) %>%
+  melt(id.vars = c("username",
+                   "outcome_type",
+                   "outcome",
+                   "game_id",
+                   "name",
+                   "yearpublished")) %>%
+  mutate(variable = factor(rename_func(variable),
+                           levels = top_predictors_levels)) %>%
+#  mutate(variable = rename_func(variable)) %>%
+  ggplot(., aes(x=value,
+                fill= outcome,
+                color = outcome,
+                y=outcome))+
+  geom_density_ridges(alpha=0.6)+
+  facet_wrap(variable~.,
+             scales="free")+
+  theme_phil()+
+  scale_fill_manual(values = c("grey60", 
+                               "deepskyblue1"))+
+  scale_color_manual(values = c("grey60", 
+                               "deepskyblue1"))+
+  guides(fill = "none",
+         color = "none")+
+    ylab("User Owns Game?")+
+    xlab("")+
+   labs(title = "What Explains a User's Collection?",
+                             subtitle = str_wrap(paste("Plotting density of games owned by user by top predictors from model. Data from all games published before", params$end_training_year), 90))+
+   theme(panel.grid.major=element_blank(),
+         panel.grid.minor = element_blank())+
+   my_caption
+ 
+suppressWarnings({
+suppressMessages({
+ print(predictor_plot)
+})
+})
+
+```
+
+
 ## Assessment
 
 Examine separation plot for training set (cross validated predictions).
@@ -1011,7 +1069,6 @@ Examine the top games for the test set.
 
 foo$preds_table %>%
   set_caption(paste("Top Predicted Games for User, ", params$end_training_year, " and On", sep=""))
-
 
 ```
 
