@@ -1,0 +1,571 @@
+---
+title: "Examining BGG Rating Models"
+author: Phil Henrickson
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+        toc: true
+        toc_depth: 3
+        keep_md: true
+---
+
+```{r global settings, echo=F, warning=F, message=F}
+
+knitr::opts_chunk$set(echo = F,
+                      error=F,
+                      dev="png",
+                      fig.width = 9,
+                      fig.height = 6)
+
+options(knitr.duplicate.label = "allow")
+
+options(scipen=999)
+
+source("load_packages.R")
+source("theme_phil.R")
+library(plumber)
+rm(a)
+
+```
+
+```{r flextable settings, echo=F, warning=F, message=F}
+
+library(webshot2)
+library(flextable)
+set_flextable_defaults(theme_fun = theme_alafoli,
+                       font.color = "grey10",
+  padding.bottom = 6, 
+  padding.top = 6,
+  padding.left = 6,
+  padding.right = 6,
+  background.color = "white")
+
+```
+
+## Get Functions
+
+```{r get function, echo=F, warning=F, message=F}
+
+# function for loading game by id
+source("functions/get_game_record.R")
+
+# function for reading in current bgg data
+source("functions/get_bgg_data_from_github.R")
+
+# function for predicting with trained model
+source("functions/bake_and_predict_ratings.R")
+
+# function for predicting with stan
+source("functions/bake_and_predict_posterior.R")
+
+# function for plotting posterior
+source("functions/plot_posterior.R")
+
+# function for predicting complexity then ratings
+source("functions/bake_and_predict_avgweight_and_ratings.R")
+
+# function for renaming and tidying output
+rename_func<-function(x) {
+  
+  x<-gsub("cat_memory", "cat_memory_game", x)
+  x<-gsub("cat_spiessecret_agents", "cat_spies_secret_agents", x)
+ # x<-gsub("number_artists", "number_top_artists", x)
+  x<-gsub("cat_","", x)
+  x<-gsub("mech_","", x)
+  x<-gsub("pub_","", x)
+  x<-gsub("des_","", x)
+  x<-gsub("art_", "Artist ", x)
+  x<-gsub("avgweight", "Average Weight", x)
+  x<-gsub("yearpublished", "Year Published", x)
+  x<-gsub("minage", "Min Age", x)
+  x<-gsub("playingtime", "Playing Time", x)
+  x<-gsub("maxplayers", "Max Players", x)
+  x<-gsub("minplayers", "Min Players", x)
+  x<-gsub("murdermystery", "murder mystery", x)
+  x<-gsub("_", " ", x)
+  
+  str_to_title(x)
+
+}
+
+# geek rating
+baverage_func<- function(x) {
+        
+        breaks = seq(5.5, 8.3, 0.1)
+        colorRamp=colorRampPalette(c("white", "deepskyblue1"))
+        col_palette <- colorRamp(length(breaks))
+        mycut <- cut(x, 
+                     breaks = breaks,
+                     include.lowest = TRUE, 
+                     right=T,
+                     label = FALSE)
+        col_palette[mycut]
+        
+}
+
+# avg rating
+average_func<- function(x) {
+        
+        breaks = seq(6.5, 9.9, 0.1)
+        colorRamp=colorRampPalette(c("white", "deepskyblue1"))
+        col_palette <- colorRamp(length(breaks))
+        mycut <- cut(x, 
+                     breaks = breaks,
+                     include.lowest = TRUE, 
+                     right=T,
+                     label = FALSE)
+        col_palette[mycut]
+        
+}
+
+# avgweight
+avgweight_func<- function(x) {
+  
+  breaks<-seq(1, 5, 0.1)
+#  breaks = weight_deciles
+  colorRamp=colorRampPalette(c("white", "red"))
+  col_palette <- colorRamp(length(breaks))
+  mycut <- cut(x, 
+    breaks = breaks,
+    include.lowest = TRUE, 
+    right=T,
+    label = FALSE)
+  col_palette[mycut]
+  
+}
+
+```
+
+```{r get todays bgg data then filter to year, echo=F, warning=F, message=F}
+
+# get todays data from bgg
+bgg_today<-get_bgg_data_from_github(Sys.Date())
+
+```
+
+Push through function
+
+## Estimating Ratings
+
+These estimates make use of the current avgweight on BGG. For games with relatively few votes, the avgweight might be unreliable. In the next section, I first estimate the avgweight and then use the estimated value in the model.
+
+### 2020
+
+```{r predict ratings for 2020, echo=F, warning=F, message=F}
+
+
+# Predict BGG ratings and complexity with previously trained models.
+
+# pull ids
+ids = bgg_today %>%
+  filter(game_release_year == 2020) %>%
+  pull(game_id)
+
+# feed through predictive models to get predictions
+preds = bake_and_predict_ratings(ids,
+                                         "xgbTree_fit")
+
+```
+
+```{r now create a table for 2020, warning=F, message=F}
+
+# ratings
+ratings = preds$estimate
+
+# combine
+table = ratings %>%
+        spread(outcome, pred) %>%
+  mutate(method = gsub("_fit", "", method)) %>%
+        arrange(desc(baverage))
+
+# edit
+tidy_table = table %>%
+        arrange(desc(baverage)) %>%
+        mutate(Row = row_number()) %>%
+        mutate(yearpublished = as.character(yearpublished),
+               game_id = as.character(game_id)) %>%
+        rename(Published = yearpublished,
+               BGG_ID = game_id,
+               Game = name) %>%
+        select(Row, BGG_ID, Published, Game, average, baverage)
+
+# get to ft
+ft_table = tidy_table %>%
+        flextable() %>%
+        flextable::autofit() %>%
+        flextable::align(j = c("average", "baverage"),
+                         align = "center",
+                         part = "all") %>%
+        add_header(average = "Estimated",
+                   baverage = "Estimated", 
+                   top = TRUE) %>%
+        merge_h(part = "header") %>%
+        add_footer(top = F, values = paste("Predictions as of ", Sys.Date())) %>%
+        bold(part = "header") %>%
+        border_remove() %>%
+        bg(., j = c("baverage"),
+           bg = baverage_func) %>%
+        bg(., j = c("average"),
+                   bg = average_func) %>%
+  set_caption("Estimates of BGG Ratings for Upcoming Games")
+
+# display
+ft_table
+
+```
+
+
+### 2021
+
+```{r predict ratings for 2021, echo=F, warning=F, message=F}
+
+# Predict BGG ratings and complexity with previously trained models.
+
+# pull ids
+ids = bgg_today %>%
+  filter(game_release_year == 2021) %>%
+  pull(game_id)
+
+# feed through predictive models to get predictions
+preds = bake_and_predict_ratings(ids,
+                                         "xgbTree_fit")
+
+```
+
+```{r now create a table for 2021, echo=F, warning=F, message=F}
+
+# ratings
+ratings = preds$estimate
+
+# combine
+table = ratings %>%
+        spread(outcome, pred) %>%
+  mutate(method = gsub("_fit", "", method)) %>%
+        arrange(desc(baverage))
+
+# edit
+tidy_table = table %>%
+        arrange(desc(baverage)) %>%
+        mutate(Row = row_number()) %>%
+        mutate(yearpublished = as.character(yearpublished),
+               game_id = as.character(game_id)) %>%
+        rename(Published = yearpublished,
+               BGG_ID = game_id,
+               Game = name) %>%
+        select(Row, BGG_ID, Published, Game, average, baverage)
+
+# get to ft
+ft_table = tidy_table %>%
+        flextable() %>%
+        flextable::autofit() %>%
+        flextable::align(j = c("average", "baverage"),
+                         align = "center",
+                         part = "all") %>%
+        add_header(average = "Estimated",
+                   baverage = "Estimated", 
+                   top = TRUE) %>%
+        merge_h(part = "header") %>%
+        add_footer(top = F, values = paste("Predictions as of ", Sys.Date())) %>%
+        bold(part = "header") %>%
+        border_remove() %>%
+        bg(., j = c("baverage"),
+           bg = baverage_func) %>%
+        bg(., j = c("average"),
+                   bg = average_func) %>%
+  set_caption("Estimates of BGG Ratings for Upcoming Games")
+
+# display
+ft_table
+
+```
+
+
+### 2022
+
+```{r predict ratings for 2022, echo=F, warning=F, message=F}
+
+# Predict BGG ratings and complexity with previously trained models.
+
+# pull ids
+ids = bgg_today %>%
+  filter(game_release_year == 2022) %>%
+  pull(game_id)
+
+# feed through predictive models to get predictions
+preds = bake_and_predict_ratings(ids,
+                                         "xgbTree_fit")
+
+```
+
+```{r now create a table for 2022, echo=F, warning=F, message=F}
+
+# ratings
+ratings = preds$estimate
+
+# combine
+table = ratings %>%
+        spread(outcome, pred) %>%
+  mutate(method = gsub("_fit", "", method)) %>%
+        arrange(desc(baverage))
+
+# edit
+tidy_table = table %>%
+        arrange(desc(baverage)) %>%
+        mutate(Row = row_number()) %>%
+        mutate(yearpublished = as.character(yearpublished),
+               game_id = as.character(game_id)) %>%
+        rename(Published = yearpublished,
+               BGG_ID = game_id,
+               Game = name) %>%
+        select(Row, BGG_ID, Published, Game, average, baverage)
+
+# get to ft
+ft_table = tidy_table %>%
+        flextable() %>%
+        flextable::autofit() %>%
+        flextable::align(j = c("average", "baverage"),
+                         align = "center",
+                         part = "all") %>%
+        add_header(average = "Estimated",
+                   baverage = "Estimated", 
+                   top = TRUE) %>%
+        merge_h(part = "header") %>%
+        add_footer(top = F, values = paste("Predictions as of ", Sys.Date())) %>%
+        bold(part = "header") %>%
+        border_remove() %>%
+        bg(., j = c("baverage"),
+           bg = baverage_func) %>%
+        bg(., j = c("average"),
+                   bg = average_func) %>%
+  set_caption("Estimates of BGG Ratings for Upcoming Games")
+
+# display
+ft_table
+
+```
+
+## Estimating Weight and Ratings
+
+These models first estimate the weight of the game, then predict the average rating and geek rating.
+
+### 2020
+
+```{r get games and predict both outcomes 2020, echo=F, warning=F, message=F}
+
+# Predict BGG ratings and complexity with previously trained models.
+# pull ids
+ids = bgg_today %>%
+  filter(game_release_year == 2020) %>%
+  pull(game_id)
+
+# feed through predictive models to get predictions
+preds = bake_and_predict_avgweight_and_ratings(ids,
+                                         "xgbTree_fit")
+
+# estimated weight
+complexity = preds$estimated_weight
+ratings = preds$estimated_rating
+
+# combine
+table = ratings %>%
+        spread(outcome, pred) %>%
+        select(-method) %>%
+        left_join(., 
+                  complexity %>%
+                          spread(outcome, pred) %>%
+                          select(game_id, avgweight),
+                  by = "game_id") %>%
+        arrange(desc(baverage))
+
+```
+
+```{r create flextable for both estimates for 2020, echo=F, warning=F, message=F}
+
+# edit
+tidy_table = table %>%
+        arrange(desc(baverage)) %>%
+        mutate(Row = row_number()) %>%
+        mutate(yearpublished = as.character(yearpublished),
+               game_id = as.character(game_id)) %>%
+        rename(Published = yearpublished,
+               BGG_ID = game_id,
+               Game = name) %>%
+        select(Row, BGG_ID, Published, Game, average, baverage, avgweight)
+
+# get to ft
+ft_table = tidy_table %>%
+        flextable() %>%
+        flextable::autofit() %>%
+        flextable::align(j = c("average", "baverage", "avgweight"),
+                         align = "center",
+                         part = "all") %>%
+        add_header(average = "Estimated",
+                   baverage = "Estimated", 
+                   avgweight = "Estimated",
+                   top = TRUE) %>%
+        merge_h(part = "header") %>%
+        add_footer(top = F, values = paste("Predictions as of ", Sys.Date())) %>%
+        bold(part = "header") %>%
+        border_remove() %>%
+        bg(., j = c("baverage"),
+           bg = baverage_func) %>%
+        bg(., j = c("average"),
+                   bg = average_func) %>%
+       bg(., j = c("avgweight"),
+           bg = avgweight_func) %>%
+  set_caption("Estimates of BGG Ratings for Upcoming Games")
+
+# display
+ft_table
+
+```
+
+
+### 2021
+
+```{r get games and predict both outcomes 2021, echo=F, warning=F, message=F}
+
+# Predict BGG ratings and complexity with previously trained models.
+# pull ids
+ids = bgg_today %>%
+  filter(game_release_year == 2021) %>%
+  pull(game_id)
+
+# feed through predictive models to get predictions
+preds = bake_and_predict_avgweight_and_ratings(ids,
+                                         "xgbTree_fit")
+
+# estimated weight
+complexity = preds$estimated_weight
+ratings = preds$estimated_rating
+
+# combine
+table = ratings %>%
+        spread(outcome, pred) %>%
+        select(-method) %>%
+        left_join(., 
+                  complexity %>%
+                          spread(outcome, pred) %>%
+                          select(game_id, avgweight),
+                  by = "game_id") %>%
+        arrange(desc(baverage))
+
+```
+
+```{r create flextable for both estimates for 2021, warning=F, message=F}
+
+# edit
+tidy_table = table %>%
+        arrange(desc(baverage)) %>%
+        mutate(Row = row_number()) %>%
+        mutate(yearpublished = as.character(yearpublished),
+               game_id = as.character(game_id)) %>%
+        rename(Published = yearpublished,
+               BGG_ID = game_id,
+               Game = name) %>%
+        select(Row, BGG_ID, Published, Game, average, baverage, avgweight)
+
+# get to ft
+ft_table = tidy_table %>%
+        flextable() %>%
+        flextable::autofit() %>%
+        flextable::align(j = c("average", "baverage", "avgweight"),
+                         align = "center",
+                         part = "all") %>%
+        add_header(average = "Estimated",
+                   baverage = "Estimated", 
+                   avgweight = "Estimated",
+                   top = TRUE) %>%
+        merge_h(part = "header") %>%
+        add_footer(top = F, values = paste("Predictions as of ", Sys.Date())) %>%
+        bold(part = "header") %>%
+        border_remove() %>%
+        bg(., j = c("baverage"),
+           bg = baverage_func) %>%
+        bg(., j = c("average"),
+                   bg = average_func) %>%
+       bg(., j = c("avgweight"),
+           bg = avgweight_func) %>%
+  set_caption("Estimates of BGG Ratings for Upcoming Games")
+
+# display
+ft_table
+
+```
+
+
+### 2022
+
+```{r get games and predict both outcomes 2022, echo=F, warning=F, message=F}
+
+# Predict BGG ratings and complexity with previously trained models.
+# pull ids
+ids = bgg_today %>%
+  filter(game_release_year == 2022) %>%
+  pull(game_id)
+
+# feed through predictive models to get predictions
+preds = bake_and_predict_avgweight_and_ratings(ids,
+                                         "xgbTree_fit")
+
+# estimated weight
+complexity = preds$estimated_weight
+ratings = preds$estimated_rating
+
+# combine
+table = ratings %>%
+        spread(outcome, pred) %>%
+        select(-method) %>%
+        left_join(., 
+                  complexity %>%
+                          spread(outcome, pred) %>%
+                          select(game_id, avgweight),
+                  by = "game_id") %>%
+        arrange(desc(baverage))
+
+```
+
+```{r create flextable for both estimates for 2022, warning=F, message=F}
+
+# edit
+tidy_table = table %>%
+        arrange(desc(baverage)) %>%
+        mutate(Row = row_number()) %>%
+        mutate(yearpublished = as.character(yearpublished),
+               game_id = as.character(game_id)) %>%
+        rename(Published = yearpublished,
+               BGG_ID = game_id,
+               Game = name) %>%
+        select(Row, BGG_ID, Published, Game, average, baverage, avgweight)
+
+# get to ft
+ft_table = tidy_table %>%
+        flextable() %>%
+        flextable::autofit() %>%
+        flextable::align(j = c("average", "baverage", "avgweight"),
+                         align = "center",
+                         part = "all") %>%
+        add_header(average = "Estimated",
+                   baverage = "Estimated", 
+                   avgweight = "Estimated",
+                   top = TRUE) %>%
+        merge_h(part = "header") %>%
+        add_footer(top = F, values = paste("Predictions as of ", Sys.Date())) %>%
+        bold(part = "header") %>%
+        border_remove() %>%
+        bg(., j = c("baverage"),
+           bg = baverage_func) %>%
+        bg(., j = c("average"),
+                   bg = average_func) %>%
+       bg(., j = c("avgweight"),
+           bg = avgweight_func) %>%
+  set_caption("Estimates of BGG Ratings for Upcoming Games")
+
+# display
+ft_table
+
+```
+
+
+
+
