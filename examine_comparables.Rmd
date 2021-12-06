@@ -2,13 +2,15 @@
 title: "Finding Comparable Games"
 author: "Phil Henrickson"
 date: "`r Sys.Date()`"
-output:
+output: 
   html_document:
-    keep_md: yes
-  word_document: default
+        toc: true
+        toc_depth: 3
+params:
+  id: 167791
 ---
 
-```{r global settings, echo=F, warning=F, message=F}
+```{r global settings, echo=F, warning=F, message=F, results = 'hide'}
 
 knitr::opts_chunk$set(echo = F,
                       error=F,
@@ -27,12 +29,17 @@ rm(a)
 
 ```
 
-```{r flextable settings, echo=F, warning=F, message=F}
+```{r flextable settings, results = 'hide', echo=F, warning=F, message=F}
 
 library(webshot2)
 library(flextable)
+library(kableExtra)
+library(cowplot)
+library(magick)
+library(gt)
+
 set_flextable_defaults(theme_fun = theme_alafoli,
-                       font.color = "grey10",
+                       font.color = "black",
   padding.bottom = 6, 
   padding.top = 6,
   padding.left = 6,
@@ -41,33 +48,263 @@ set_flextable_defaults(theme_fun = theme_alafoli,
 
 ```
 
-```{r load functions, warning=F, message=F}
+```{r load functions, warning=F, message=F, results = 'hide'}
 
 # function for loading game by id
 source("functions/get_game_comparables.R")
 
+# function for loading game record
+source("functions/get_game_record.R")
+
+# rename func
+source("functions/rename_func.R")
+
+ttheme_game<- ttheme_minimal(core = list(fg_params = list(
+  #hjust = 0,
+                                                   #        x = 0.05,
+                                                     #     fontfamily="Calibri",
+                                                    fontsize = 12)),
+                              colhead = list(fg_params = list(fontsize = 12,
+                                                          fontface = "bold")))
+
+ttheme_phil <- ttheme_minimal(core = list(fg_params = list(hjust = 0,
+                                                           x = 0.05,
+                                                    fontsize = 10)),
+                              colhead = list(fg_params = list(fontsize = 12,
+                                                          fontface = "bold")))
+
+suppressMessages({
+        record = get_game_record(params$id)
+})
+
 ```
 
-This notebook is for finding similar 
-```{r run and get for game, warning=F, message=F}
+## Game Profile
 
-run = get_game_comparables(306735)
+```{r table of game info, fig.height=1.5, fig.width=10}
+
+game_info = record %>%
+      #  select(game_id, yearpublished, name) %>%
+        rename(ID = game_id,
+               Published = yearpublished,
+               Average = average,
+               UserRatings = usersrated,
+               GeekAverage= baverage,
+               Complexity = avgweight,
+               Game = name) %>%
+  mutate(`Player Count` = paste(minplayers, maxplayers, sep="-"),
+         `Playing Time` = paste(as.character(playingtime), " min", sep="")) %>%
+  mutate_if(is.numeric, round, 2) %>%
+       # mutate_if(is.numeric, as.character) %>%
+  mutate(Published = as.character(Published),
+         ID = as.character(ID)) %>%
+        select(ID, Game, Published, `Player Count`, `Playing Time`, UserRatings, Average, GeekAverage, Complexity)
+
+game_info %>%
+  flextable() %>%
+  flextable::autofit() 
+
+#%>%
+  #set_caption(paste("Game Profile for ", record$name[1], ". Data from boardgamegeek.com", sep=""))
+
+# game_info$Game = str_wrap(game_info$Game, 40)
+#   #       flextable() %>%
+#   #    #   flextable::autofit() %>% 
+#   #       bold(part = "all") %>%
+#   # as_raster()
+
+# t_game_info = tableGrob(game_info %>%
+#                           rename_all(toupper),
+#                         theme=ttheme_game, rows=NULL)
+
+# grid.arrange(t_game_info,
+#              ncol =1)
+
+# game_info %>%
+#   flextable() %>%
+#   flextable::align(align = "center", part = "all") %>%
+#   flextable::autofit() %>%
+#   bold(part = "all")
+
+             
+```
+
+```{r table of publishers, mechanics, categories, fig.height=6, fig.width=8, eval=F}
+
+# tables in panel
+# publishers = record %>%
+#         select(starts_with("pub_")) %>%
+#         rename_all(rename_func) %>%
+#         names() %>%
+#         sort() %>%
+#   abbreviate(minlength=25)
+
+mechanics = record %>%
+        select(starts_with("mech_")) %>%
+        rename_all(rename_func) %>%
+        names() %>%
+        sort() 
+
+categories = record %>%
+        select(starts_with("cat_")) %>%
+        rename_all(rename_func) %>%
+        names() %>%
+        sort()
+
+designers = record %>%
+        select(starts_with("des_")) %>%
+        rename_all(rename_func) %>%
+        names() %>%
+        sort() 
+
+artists = record %>%
+        select(starts_with("art_")) %>%
+  rename_all( ~ gsub("art_", "", .)) %>%
+        rename_all(rename_func) %>%
+        names() %>%
+        sort() 
+
+
+# maximum
+# max = max(c(length(mechanics),
+#             length(publishers),
+#             length(categories)))
+
+max = max(21,
+          length(c(
+          mechanics,
+             categories,
+             designers,
+             artists)))
+
+# # set
+# t_publishers = tableGrob(c(publishers, 
+#                           rep("", max - length(publishers))) %>%
+#                           as_tibble() %>%
+#                           rename(publishers = value) %>%
+#                           rename_all(toupper),
+#                         theme=ttheme_phil, rows=NULL)
+
+t_mechanics = tableGrob(c(mechanics, 
+                          rep("", max - length(mechanics))) %>%
+                          as_tibble() %>%
+                          rename(mechanics = value) %>%
+                          rename_all(toupper),
+                        theme=ttheme_phil, rows=NULL)
+
+t_categories = tableGrob(c(categories, 
+                          rep("", max - length(categories))) %>%
+                          as_tibble() %>%
+                          rename(categories = value) %>%
+                          rename_all(toupper),
+                        theme=ttheme_phil, rows=NULL)
+
+# tablegrobs
+t_designers = tableGrob(c(designers, 
+                          rep("", max - length(designers))) %>%
+                          as_tibble() %>%
+                          rename(designers = value) %>%
+                          rename_all(toupper),
+                        theme=ttheme_phil, rows=NULL)
+
+t_artists = tableGrob(c(artists, 
+                          rep("", max - length(artists))) %>%
+                          as_tibble() %>%
+                          rename(artists = value) %>%
+                          rename_all(toupper),
+                        theme=ttheme_phil, rows=NULL)
+
+# grid
+grid.arrange(
+  #t_publishers,
+             t_mechanics, 
+             t_categories,
+             t_designers,
+             t_artists,
+             ncol =5)
+
+# knitr::kable(list(mechanics, categories))
 
 ```
 
-```{r examine nplot, fig.height=8, fig.width=10}
 
-run$neighbors_plot
+## Most Similar Games to **`r paste(record$name[1])`**
+
+The table below displays the most similar games to `r paste(record$name[1])` using data from boardgamegeek (BGG). My method uses principal components analysis to identify the main sources of variation in the data on BGG, then finds the Euclidean distance between all games using their placement on the first eight principal components.
+
+```{r comps and get for game, warning=F, message=F, results = 'hide'}
+
+comps = get_game_comparables(params$id)
 
 ```
-
-## Table of Comparables
 
 ```{r examine table}
 
-run$neighbors_table
+comps$neighbors_table
 
 ```
+
+## Plotting Comparable Games to **`r paste(record$name[1])`**
+
+Placing `r paste(record$name[1])` and its nearest neighbors on the first two principal components.
+
+```{r examine pc plot, fig.height=8, fig.width=10, warning=F, message=F}
+
+comps$pc_plot+
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank())+
+  ylab("PC2_Thematic")+
+  xlab("PC1_Complexity")+
+  annotate("label",
+           x=-4.5,
+           y=10,
+          label = "Party/Deduction")+
+    annotate("label",
+           x=7,
+           y=10,
+          label=  "Thematic")+
+  annotate("label",
+           x =-5,
+           y = -4,
+         label =  "Family/Abstract")+
+  annotate("label",
+           x=10,
+           y = -5,
+        label = "Simulation/Wargame")+
+  ggtitle(paste("What type of game is ", record$name, "?", sep=""),
+          subtitle = str_wrap("Mapping all games on BGG by first two principal components of variation (complexity and theme), which identifies specific clusters of game types. The selected game and its nearest neighbors are highlighted to identify where they are placed in this mapping of games.", 125))
+
+```
+
+$$\\[0.05in]$$
+
+Placing games on the first four principal components.
+
+```{r examine nplot, fig.height=8, fig.width=10, warning=F, message=F}
+
+comps$neighbors_plot+
+                  annotate("label",
+                         x= 1,
+                         y=c(-5, 5.5),
+                         label = c("Simple", "Complex"))+
+                    annotate("label",
+                         x= 2,
+                         y=c(-4, 6),
+                         label = c("Abstract", "Storytelling"))+
+                      annotate("label",
+                         x= 3,
+                         y=c(-7, 5.5),
+                         label = c("Simulation", "Economic"))+
+                      annotate("label",
+                         x= 4,
+                         y=c(-8, 5),
+                         label = c("Conflict/Deception", "Cooperative"))
+
+```
+
+
+
+
 
 
 

@@ -78,16 +78,15 @@ function(id) {
                         ungroup() %>%
                         filter(rank <=25) %>%
                         rename(Comparing_By = dataset,
+                               Similarity = similarity,
                                ID = neighbor_game_id,
                                Complexity = avgweight,
                                Game = name,
                                Published = yearpublished,
                                Neighbor = neighbor_name,
                                Rank = rank) %>%
-                        ungroup() %>%
-                        select(Game, Comparing_By, Rank, ID, Published, Neighbor, BGGRating, GeekRating, Complexity) %>%
-                        mutate_if(is.numeric, round, 2) %>%
-                        arrange(desc(Comparing_By)) 
+                        select(Comparing_By, Similarity, Rank, ID, Published, Neighbor, BGGRating, GeekRating, Complexity) %>%
+                        mutate_if(is.numeric, round, 2)
                 
         } else {
                 
@@ -222,15 +221,15 @@ function(id) {
                         mutate(yearpublished = as.character(yearpublished),
                                neighbor_id = as.character(neighbor_id)) %>%
                         rename(Comparing_By = dataset,
+                               Similarity = similarity,
                                ID = neighbor_id,
                                Complexity = avgweight,
                                Game = name,
                                Published = yearpublished,
                                Neighbor = neighbor,
                                Rank = rank) %>%
-                        select(Comparing_By, Rank, ID, Published, Neighbor, BGGRating, GeekRating, Complexity) %>%
-                        mutate_if(is.numeric, round, 2) %>%
-                        arrange(desc(Comparing_By))
+                        select(Comparing_By, Similarity, Rank, ID, Published, Neighbor, BGGRating, GeekRating, Complexity) %>%
+                        mutate_if(is.numeric, round, 2)
                 
         }
         
@@ -238,7 +237,7 @@ function(id) {
         # geek rating
         baverage_func<- function(x) {
                 
-                breaks = seq(5, 8.6, 0.1)
+                breaks = seq(6, 8.6, 0.1)
                 colorRamp=colorRampPalette(c("white", "deepskyblue1"))
                 col_palette <- colorRamp(length(breaks))
                 mycut <- cut(x, 
@@ -253,7 +252,7 @@ function(id) {
         # avg rating
         average_func<- function(x) {
                 
-                breaks = seq(4, 9.9, 0.1)
+                breaks = seq(6, 9.9, 0.1)
                 colorRamp=colorRampPalette(c("white", "deepskyblue1"))
                 col_palette <- colorRamp(length(breaks))
                 mycut <- cut(x, 
@@ -283,14 +282,17 @@ function(id) {
         
         # convert to flextable
         neighbors_table_ft = neighbors_table %>%
-                filter(Rank <=10) %>%
+                filter(Comparing_By == "fundamentals, mechanics, and categories") %>%
+                select(Rank, Similarity, ID, Published, Neighbor, BGGRating, GeekRating, Complexity) %>%
+                filter(Rank <=25) %>%
+             #   select(-Game) %>%
                 flextable() %>%
                 flextable::autofit() %>%
-                set_caption(paste("Comparables games to", game, sep=" ")) %>%
-                bg(., i = ~ Comparing_By =='fundamentals, mechanics, and categories',
-                   bg = 'grey100') %>%
-                bg(., i = ~ Comparing_By == 'fundamentals and mechanics',
-                   bg = 'grey90') %>%
+             #   add_footer(paste("Most similar games to", game, "using complexity, playing time, player count, mechanics, and categories", sep=" ")) %>%
+                # bg(., i = ~ Comparing_By =='fundamentals, mechanics, and categories',
+                #    bg = 'grey100') %>%
+                # bg(., i = ~ Comparing_By == 'fundamentals and mechanics',
+                #    bg = 'grey90') %>%
                 bg(., j = c("GeekRating"),
                    bg = baverage_func) %>%
                 bg(., j = c("BGGRating"),
@@ -304,13 +306,25 @@ function(id) {
         df = unsupervised_obj[1,]$pca_with_data[[1]] %>%
                 select(game_id, name, PC1:PC10)
         
+        
         plot_df = df %>%
                 melt(., id.vars = c("game_id", "name")) %>%
                 mutate(variable = case_when(variable == 'PC1' ~ 'PC1_Complexity',
                                             variable == 'PC2' ~ 'PC2_Thematic',
                                             variable == 'PC3' ~ 'PC3_Economy',
                                             variable == 'PC4' ~ 'PC4_Cooperation')) %>%
-                filter(!is.na(variable))
+                filter(!is.na(variable)) %>%
+                group_by(variable) %>%
+                mutate(scale = scale(value, center=T, scale=T))
+               # do(data.frame(., perc = ecdf(.$value)(.$value)))
+                
+                
+        #%>%
+                # mutate(variable = factor(variable,
+                #                          levels = c("PC4_Cooperation",
+                #                                     "PC3_Economy",
+                #                                     "PC2_Thematic",
+                #                                     "PC1_Complexity")))
         
         # jitter
         pos <- position_jitter(width = 0.15, seed = 2)
@@ -319,8 +333,8 @@ function(id) {
         # make background plot
         background = plot_df %>%
                 ggplot(., aes(x=variable,
-                              y = value))+
-                geom_jitter(alpha=0.05,
+                              y = scale))+
+                geom_jitter(alpha=0.1,
                             col = 'grey60',
                             position = pos)+
                 theme_phil()+
@@ -334,8 +348,10 @@ function(id) {
                 ggtitle(paste("Which games are similar to ", game, "?", sep= ""),
                         subtitle = str_wrap("Placing games on first four principal components of variation: complexity, theme, economy, and coooperation.", 125))
         
+        # IDs to place
         compare = c(neighbors_table %>%
-                            filter(Rank < 5) %>%
+                            filter(Comparing_By == "fundamentals, mechanics, and categories") %>%
+                            filter(Rank <=6) %>%
                             pull(ID))
         
         
@@ -344,7 +360,7 @@ function(id) {
                 #                           filter(game_id %in% id),
                 #                   aes(x = variable,
                 #                       size = highlight,
-                #                       y = value),
+                #                       y = scale),
                 #             color = "black",
                 #             size = 2.5,
                 #             position = pos2)+
@@ -352,29 +368,67 @@ function(id) {
                                     filter(game_id %in% c(id, compare)),
                             aes(x = variable,
                                 color = name,
-                                y = value),
+                                y = scale),
                             size = 2,
                             position = pos2)+
                 geom_label_repel(data = plot_df %>%
                                          filter(game_id %in% c(id,compare)),             
                                  aes(x = variable,
                                      color = name,
-                                     y=value,
+                                     y=scale,
                                      label = name),
                                  position = pos2,
-                                 max.overlaps=25,
+                                 max.overlaps=7,
                                  show.legend=F,
                                  size = 3)+
                 guides(label = "none",
                        color = "none",
                        size = "none")+
-                scale_color_viridis_d(option = "plasma",
-                                      begin = 0.05,
+                scale_color_viridis_d(begin = 0.2,
                                       end = 0.8)
         
+        pc_plot_background = df %>%
+                ggplot(., aes(x=PC1,
+                              label = name,
+                              y = PC2))+
+                geom_point(alpha = 0.15,
+                           col = "grey60")+
+                geom_text(check_overlap=T,
+                          vjust = 0.5,
+                          col = "grey80",
+                          size =2)+
+                theme_phil()
+        
+        
+        pc_plot = pc_plot_background +
+                geom_point(data = df %>%
+                                   filter(game_id %in% c(id, compare)),
+                           aes(x=PC1,
+                               label = name,
+                               color = name,
+                               y=PC2),
+                           size = 3)+
+                geom_label_repel(data = df %>%
+                                   filter(game_id %in% c(id, compare)),
+                           aes(x=PC1,
+                               label = name,
+                               color = name,
+                               y=PC2),
+                           size =3,
+                           max.overlaps = 8)+
+                guides(label = "none",
+                       color = "none",
+                       size = "none")+
+                scale_color_viridis_d(begin = 0.2,
+                                      end = 0.8)
+        
+
         out = list("neighbors_table" = neighbors_table_ft,
                    "neighbors_data" = neighbors_table,
-                   "neighbors_plot" = compare_plot)
+                   "neighbors_plot" = compare_plot,
+                   "pc_plot" = pc_plot)
+        
+        
         
         return(out)
         
