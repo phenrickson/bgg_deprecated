@@ -17,16 +17,7 @@ function(input_date) {
                        users_rated = `Users rated`,
                        bgg_url = URL,
                        thumbnail = Thumbnail) %>%
-                mutate(game_name = gsub(",", " ", game_name)) %>%
-                mutate(date = as.Date(date)) %>%
-                select(date,
-                       game_id,
-                       game_name,
-                       game_release_year,
-                       bgg_rank,
-                       bgg_average,
-                       bayes_average,
-                       users_rated)
+                select(date, everything())
         
         return(data)
         
