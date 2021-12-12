@@ -27,6 +27,15 @@ bigquerycon<-dbConnect(
         dataset = "bgg"
 )
 
+# bgg today
+source("functions/get_bgg_data_from_github.R")
+source("functions/get_game_record.R")
+bgg_day<-get_bgg_data_from_github(Sys.Date())
+
+# # push ids through a flattening function
+# # takes about.... 40 minutes to get every game?
+# games_flattened = bgg_
+
 # get datasets
 # query table
 active_games<-DBI::dbGetQuery(bigquerycon, 
@@ -190,7 +199,7 @@ top_designers = data_inspection %>%
                   n_games = n_distinct(game_id),
                   .groups = 'drop') %>%
         group_by(outcome_type) %>%
-        filter(n_games > min_games) %>%
+        filter(n_games > min_games | designer == 'Vital Lacerda') %>%
         arrange(desc(median_rating)) %>%
         mutate(rank = row_number())
 
@@ -257,6 +266,9 @@ top_artists = data_inspection %>%
         arrange(desc(median_rating)) %>%
         mutate(rank = row_number())
 
+# load active games as flattened
+games_flattened = active_games
+readr::write_rds(games_flattened, file = paste("local/games_flattened_", Sys.Date(), ".Rdata", sep=""))
 
 ### Create Datasets
 
