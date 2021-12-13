@@ -10,8 +10,10 @@ theme_phil <- function () {
                       #  strip.text.x = element_text(size = 7),
                       #  strip.text.y = element_text(size = 7),
                         legend.position = "top",
-                      axis.text.x = element_text(size=rel(0.75)),
-                      axis.text.y = element_text(size=rel(0.75)),
+                      axis.text.x = element_text(size=rel(0.75),
+                                                 vjust = 1),
+                      axis.text.y = element_text(size=rel(0.75),
+                                                 hjust = 1),
                       plot.caption = element_text(size=8,
                                                   hjust = 1,
                                                   vjust = 1,
@@ -22,7 +24,7 @@ theme_phil <- function () {
                       strip.text.y = element_text(family = "sans", colour = "#3C3C3C", size = 8),
                       strip.text.x = element_text(family = "sans", colour = "#3C3C3C", size = 8),
                   #    strip.background = element_rect(fill="grey80"),
-                      panel.grid = element_line(colour = "grey80")
+                      panel.grid = element_line(colour = "grey90")
                       
                       # remove spacing between facets
                       
