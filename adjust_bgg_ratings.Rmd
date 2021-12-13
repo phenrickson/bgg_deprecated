@@ -6,16 +6,15 @@ output:
   html_document:
         toc: true
         toc_depth: 3
-        keep_md: true
 ---
 
-This notebook is for examining current BGG Geek Ratings and computing different versions of these ratings, adjusting for complexity and recency bias. This is not a novel contribution, but this notebook is designed to keep the ratings active on a live data connection to BGG that we can refresh periodically.
+This notebook is for examining current BGG Geek Ratings and computing different versions of these ratings, adjusting for a tendency of the BGG ratings to skew towards complex and recently released games. This is not a novel contribution, but this notebook is designed to keep the ratings active on a live data connection to BGG that we can refresh periodically.
 
 ```{r global seetings, echo=F, warning=F, message=F}
 
 knitr::opts_chunk$set(echo = F,
                       dev="png",
-                      fig.width = 8,
+                      fig.width = 10,
                       fig.height = 8)
 
 options(knitr.duplicate.label = "allow")
