@@ -1564,74 +1564,120 @@ bake_and_predict_avgweight_and_ratings<- function(id,
 
 dump("bake_and_predict_avgweight_and_ratings", file="functions/bake_and_predict_avgweight_and_ratings.R")
 
+# functions for adding color to flextables
+# color functions for flextable
+# geek rating
+baverage_func<- function(x) {
+        
+        breaks = seq(6, 8.6, 0.1)
+        colorRamp=colorRampPalette(c("white", "deepskyblue1"))
+        col_palette <- colorRamp(length(breaks))
+        mycut <- cut(x, 
+                     breaks = breaks,
+                     include.lowest = TRUE, 
+                     right=T,
+                     label = FALSE)
+        col_palette[mycut]
+        
+}
+dump("baverage_func", file="functions/baverage_func.R")
+
+# avg rating
+average_func<- function(x) {
+        
+        breaks = seq(6, 9.9, 0.1)
+        colorRamp=colorRampPalette(c("white", "deepskyblue1"))
+        col_palette <- colorRamp(length(breaks))
+        mycut <- cut(x, 
+                     breaks = breaks,
+                     include.lowest = TRUE, 
+                     right=T,
+                     label = FALSE)
+        col_palette[mycut]
+        
+}
+dump("average_func", file="functions/average_func.R")
+
+# avgweight
+avgweight_func<- function(x) {
+        
+        breaks<-seq(1, 5, 0.1)
+        #  breaks = weight_deciles
+        colorRamp=colorRampPalette(c("white", "red"))
+        col_palette <- colorRamp(length(breaks))
+        mycut <- cut(x, 
+                     breaks = breaks,
+                     include.lowest = TRUE, 
+                     right=T,
+                     label = FALSE)
+        col_palette[mycut]
+        
+}
+dump("avgweight_func", file="functions/avgweight_func.R")
+
 # function for getting game comparables
 get_game_comparables = function(id) {
         
         # load function
         source("functions/get_game_record.R")
+        source("functions/baverage_func.R")
+        source("functions/average_func.R")
+        source("functions/avgweight_func.R")
+        source("theme_phil.R")
         
-        # get unsupervised object previously run
-        all_files = list.files(here::here("deployment"))
-        files = all_files[grepl("unsupervised", all_files)]
+        # load active files
+        unsupervised_obj = 
+                readr::read_rds(here::here("active", "unsupervised_obj.Rdata"))
         
-        # get most recent version trained
-        most_recent_unsupervised_obj = all_files[grepl("unsupervised_obj", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name2) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
-                pull(path)
+        unsupervised_neighbors = 
+                readr::read_rds(here::here("active", "unsupervised_neighbors.Rdata")) 
         
-        # get most recent neighbors
-        most_recent_unsupervised_neighbors = all_files[grepl("unsupervised_neighbors", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name2) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
-                pull(path)
+        recipe_prep = 
+                readr::read_rds(here::here("active", "unsupervised_recipe_prep.Rdata"))
         
-        # load
-        unsupervised_obj = readr::read_rds(here::here("deployment", most_recent_unsupervised_obj))
-        unsupervised_neighbors = readr::read_rds(here::here("deployment", most_recent_unsupervised_neighbors))
-        recipe_prep = readr::read_rds(here::here("deployment", "unsupervised_recipe_prep.Rdata"))
+        games_flattened = 
+                readr::read_rds(here::here("active", "games_flattened.Rdata"))  %>%
+                select(game_id,
+                       name,
+                       yearpublished,
+                       average,
+                       baverage,
+                       avgweight,
+                       playingtime,
+                       usersrated,
+                       minplayers,
+                       maxplayers)
         
         # check to see if id is in the unsupervised object
         check_obs = unsupervised_obj %>%
+                filter(dataset == 'fundamentals, mechanics, and categories') %>%
                 select(dataset, pca_with_data) %>%
                 unnest(c(dataset, pca_with_data)) %>%
                 filter(game_id == id) %>%
                 nrow()
         
-        # get game name
-        game = unsupervised_neighbors %>%
-                filter(game_id == id) %>%
-                pull(name) %>%
-                unique()
-        
         # get table of games
-        active_games = unsupervised_obj[1,] %>% select(pca_with_data) %>% unnest() %>%
+        active_games = unsupervised_obj %>% 
+                filter(dataset == 'fundamentals, mechanics, and categories') %>%
+                select(pca_with_data) %>% unnest() %>%
                 arrange(desc(baverage)) %>%
                 mutate(rank = row_number())
         
         ### if game record is in our previously run analysis, we can just look it up
         
-        if(check_obs > 1) {
+        if(check_obs > 0) {
+                
+                # get game name
+                game = unsupervised_neighbors %>%
+                        filter(game_id == id) %>%
+                        pull(name) %>%
+                        unique()
                 
                 neighbors_table = unsupervised_neighbors %>%
                         filter(game_id == id) %>%
                         #    filter(dataset == 'fundamentals, mechanics, and categories') %>%
                         select(dataset, game_id, name, neighbor_game_id, neighbor_name, similarity, dist, perc, yearpublished, rank, average, baverage, avgweight) %>%
-                        filter(yearpublished < 2021) %>%
+                        filter(yearpublished < 2022) %>%
                         mutate(game_id = as.character(game_id),
                                neighbor_game_id = as.character(neighbor_game_id),
                                yearpublished = as.character(yearpublished)) %>%
@@ -1656,7 +1702,7 @@ get_game_comparables = function(id) {
                 
         } else {
                 
-                paste("game not in existing dataset; pulling game info from BGG and calculating...")
+                print("game not in existing dataset; pulling game info from BGG and calculating...")
                 
                 # if the game isn't present, we need to go grab it and then add it to our existing games
                 game_record = get_game_record(id) %>%
@@ -1710,7 +1756,7 @@ get_game_comparables = function(id) {
                         rename(pca_with_data = data)
                 
                 # now combine
-                game_comps = comps_obj %>%
+                unsupervised_obj = comps_obj %>%
                         left_join(., 
                                   unsupervised_obj %>%
                                           select(dataset, kmeans, norm_trained, pca_trained),
@@ -1762,7 +1808,7 @@ get_game_comparables = function(id) {
                                                                   newdata = .y)))
                 
                 # extract neighbors and report
-                neighbors_table= game_comps %>%
+                neighbors_table= unsupervised_obj %>%
                         select(dataset, neighbors) %>% 
                         unnest() %>%
                         rename(neighbor = neighbor_name,
@@ -1777,7 +1823,7 @@ get_game_comparables = function(id) {
                         rename(BGGRank = rank,
                                BGGRating = average,
                                GeekRating = baverage)  %>%
-                        filter(yearpublished < 2022) %>%
+                        filter(yearpublished < 2022) %>% # set years allowed for nearest neighbors
                         group_by(dataset) %>%
                         mutate(rank = row_number()) %>%
                         filter(rank <=25) %>%
@@ -1799,57 +1845,10 @@ get_game_comparables = function(id) {
                 
         }
         
-        # color functions for flextable
-        # geek rating
-        baverage_func<- function(x) {
-                
-                breaks = seq(6, 8.6, 0.1)
-                colorRamp=colorRampPalette(c("white", "deepskyblue1"))
-                col_palette <- colorRamp(length(breaks))
-                mycut <- cut(x, 
-                             breaks = breaks,
-                             include.lowest = TRUE, 
-                             right=T,
-                             label = FALSE)
-                col_palette[mycut]
-                
-        }
-        
-        # avg rating
-        average_func<- function(x) {
-                
-                breaks = seq(6, 9.9, 0.1)
-                colorRamp=colorRampPalette(c("white", "deepskyblue1"))
-                col_palette <- colorRamp(length(breaks))
-                mycut <- cut(x, 
-                             breaks = breaks,
-                             include.lowest = TRUE, 
-                             right=T,
-                             label = FALSE)
-                col_palette[mycut]
-                
-        }
-        
-        # avgweight
-        avgweight_func<- function(x) {
-                
-                breaks<-seq(1, 5, 0.1)
-                #  breaks = weight_deciles
-                colorRamp=colorRampPalette(c("white", "red"))
-                col_palette <- colorRamp(length(breaks))
-                mycut <- cut(x, 
-                             breaks = breaks,
-                             include.lowest = TRUE, 
-                             right=T,
-                             label = FALSE)
-                col_palette[mycut]
-                
-        }
-        
+
         # convert to flextable
         neighbors_table_ft = neighbors_table %>%
-                filter(Comparing_By == "fundamentals, mechanics, and categories") %>%
-                select(Rank, Similarity, ID, Published, Neighbor, BGGRating, GeekRating, Complexity) %>%
+                select(Rank, Similarity, Published, ID, Neighbor, BGGRating, GeekRating, Complexity) %>%
                 filter(Rank <=25) %>%
              #   select(-Game) %>%
                 flextable() %>%
@@ -1864,7 +1863,7 @@ get_game_comparables = function(id) {
                 bg(., j = c("BGGRating"),
                    bg = average_func) %>%
                 bg(., j = c("Complexity"),
-                   bg = avgweight_func) 
+                   bg = avgweight_func)
         
         
         # now make plot
@@ -1872,7 +1871,14 @@ get_game_comparables = function(id) {
         df = unsupervised_obj[1,]$pca_with_data[[1]] %>%
                 select(game_id, name, PC1:PC10)
         
+        # selected principal components
+        profile_df = df %>%
+                melt(., id.vars = c("game_id", "name")) %>%
+                group_by(variable) %>%
+                mutate(scale = scale(value, center=T, scale=T)) %>%
+                ungroup() 
         
+        # make a plot
         plot_df = df %>%
                 melt(., id.vars = c("game_id", "name")) %>%
                 mutate(variable = case_when(variable == 'PC1' ~ 'PC1_Complexity',
@@ -1882,16 +1888,14 @@ get_game_comparables = function(id) {
                 filter(!is.na(variable)) %>%
                 group_by(variable) %>%
                 mutate(scale = scale(value, center=T, scale=T))
-               # do(data.frame(., perc = ecdf(.$value)(.$value)))
-                
-                
-        #%>%
-                # mutate(variable = factor(variable,
-                #                          levels = c("PC4_Cooperation",
-                #                                     "PC3_Economy",
-                #                                     "PC2_Thematic",
-                #                                     "PC1_Complexity")))
         
+        # full
+        plot_df2 = df %>%
+                melt(., id.vars = c("game_id", "name")) %>%
+                group_by(variable) %>%
+                mutate(scale = scale(value, center=T, scale=T))
+               # do(data.frame(., perc = ecdf(.$value)(.$value)))
+
         # jitter
         pos <- position_jitter(width = 0.15, seed = 2)
         pos2 <- position_jitter(width = 0.075, seed = 2)
@@ -1914,13 +1918,26 @@ get_game_comparables = function(id) {
                 ggtitle(paste("Which games are similar to ", game, "?", sep= ""),
                         subtitle = str_wrap("Placing games on first four principal components of variation: complexity, theme, economy, and coooperation.", 125))
         
-        # IDs to place
+        # closest IDs
         compare = c(neighbors_table %>%
-                            filter(Comparing_By == "fundamentals, mechanics, and categories") %>%
                             filter(Rank <=6) %>%
                             pull(ID))
         
+        # all neighbor IDs
+        compare_full = c(neighbors_table %>%
+                            pull(ID))
+        # all neighbors
+        neighbors = c(game, neighbors_table %>%
+                              group_by(Neighbor) %>%
+                              mutate(dupe = n_distinct(Neighbor)) %>%
+                              mutate(Neighbor = case_when(Neighbor == game ~ paste(Neighbor, Published, sep="_"),
+                                                          dupe > 1 ~ paste(Neighbor, Published, sep="_"),
+                                                          TRUE ~ Neighbor)) %>%
+                              ungroup() %>%
+                              pull(Neighbor)) %>%
+                rev()
         
+        # place on principal components
         compare_plot = background + 
                 # geom_jitter(data = plot_df %>%
                 #                           filter(game_id %in% id),
@@ -1944,15 +1961,70 @@ get_game_comparables = function(id) {
                                      y=scale,
                                      label = name),
                                  position = pos2,
-                                 max.overlaps=7,
+                                 max.overlaps=15,
                                  show.legend=F,
                                  size = 3)+
                 guides(label = "none",
                        color = "none",
                        size = "none")+
-                scale_color_viridis_d(begin = 0.2,
+                scale_color_viridis_d(option="magma",
+                                      begin = 0.2,
                                       end = 0.8)
         
+        ### remake but with all components
+        # make background plot
+        background2 = plot_df2 %>%
+                ggplot(., aes(x=variable,
+                              label = name,
+                              y = scale))+
+                geom_text(vjust = 0.1,
+                          color = "grey60",
+                          size =3,
+                          position = pos,
+                          check_overlap=T)+
+                theme_phil()+
+                geom_hline(yintercept = 0,
+                           linetype = 'dashed',
+                           alpha = 0.8)+
+                theme(legend.position = 'top',
+                      legend.title = element_blank())+
+                theme(panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank())
+        
+        # full components
+        compare_plot2 = background2 + 
+                # geom_jitter(data = plot_df %>%
+                #                           filter(game_id %in% id),
+                #                   aes(x = variable,
+                #                       size = highlight,
+                #                       y = scale),
+                #             color = "black",
+                #             size = 2.5,
+                #             position = pos2)+
+                # geom_jitter(data = plot_df2 %>%
+                #                     filter(game_id %in% c(id, compare_full)),
+                #             aes(x = variable,
+                #                 color = name,
+                #                 y = scale),
+                #             size = 2,
+                #             position = pos2)+
+                geom_text(data = plot_df2 %>%
+                                         filter(game_id %in% c(id,compare_full)),             
+                                 aes(x = variable,
+                                     color = name,
+                                     y=scale,
+                                     label = name),
+                                 position = pos,
+                                 show.legend=F,
+                                 size = 3)+
+                guides(label = "none",
+                       color = "none",
+                       size = "none")+
+                scale_color_viridis_d(option="magma",
+                                      begin = 0.2,
+                                      end = 0.8)
+
+        # plot backgrond for pc1 and pc2
         pc_plot_background = df %>%
                 ggplot(., aes(x=PC1,
                               label = name,
@@ -1965,7 +2037,7 @@ get_game_comparables = function(id) {
                           size =2)+
                 theme_phil()
         
-        
+        # pc 1 and 2 plot
         pc_plot = pc_plot_background +
                 geom_point(data = df %>%
                                    filter(game_id %in% c(id, compare)),
@@ -1981,20 +2053,57 @@ get_game_comparables = function(id) {
                                color = name,
                                y=PC2),
                            size =3,
-                           max.overlaps = 8)+
+                           max.overlaps = 15)+
                 guides(label = "none",
                        color = "none",
                        size = "none")+
-                scale_color_viridis_d(begin = 0.2,
-                                      end = 0.8)
+                scale_color_viridis_d(option = "magma",
+                                      begin = 0.2,
+                                      end = 0.8)+
+                theme(panel.grid.major = element_blank(),
+                      panel.grid.minor = element_blank())
         
+        
+        # tile plot
+        tile_plot = profile_df %>%
+                filter(game_id %in% c(id, compare_full)) %>%
+           #     mutate(name = paste(name, game_id, sep="_")) %>%
+                mutate(name = factor(abbreviate(name,
+                                                minlength=30),
+                                     levels = abbreviate(neighbors,
+                                                         minlength=30))) %>%
+                mutate(scale_round = round(scale, 2)) %>%
+                ggplot(., aes(x=variable,
+                              y=name,
+                              color = scale,
+                              fill = scale))+
+                geom_tile()+
+                theme_phil()+
+                theme(legend.title = element_text())+
+                scale_color_viridis(option="magma",
+                                    limits = c(-5,5),
+                                    oob = scales::squish)+
+                scale_fill_viridis(option="magma",
+                                   limits = c(-5,5),
+                                   oob = scales::squish)+
+                guides(color = "none",
+                       fill = guide_colorbar(barheight=0.5,
+                                             barwidth=10,
+                                                  title = "Z Score",
+                                           #  title = "              Z Score",
+                                             title.position = "top"))+
+                theme(legend.position = "top")+
+                xlab("")+
+                ylab("")+
+                theme(panel.grid.minor = element_blank(),
+                      panel.grid.major = element_blank())
 
         out = list("neighbors_table" = neighbors_table_ft,
                    "neighbors_data" = neighbors_table,
                    "neighbors_plot" = compare_plot,
+                   "neighbors_plot_full" = compare_plot2,
+                   "tile_plot" = tile_plot,
                    "pc_plot" = pc_plot)
-        
-        
         
         return(out)
         

@@ -33,19 +33,22 @@ function(id) {
         
         # check to see if id is in the unsupervised object
         check_obs = unsupervised_obj %>%
+                filter(dataset == 'fundamentals, mechanics, and categories') %>%
                 select(dataset, pca_with_data) %>%
                 unnest(c(dataset, pca_with_data)) %>%
                 filter(game_id == id) %>%
                 nrow()
         
         # get table of games
-        active_games = unsupervised_obj[1,] %>% select(pca_with_data) %>% unnest() %>%
+        active_games = unsupervised_obj %>% 
+                filter(dataset == 'fundamentals, mechanics, and categories') %>%
+                select(pca_with_data) %>% unnest() %>%
                 arrange(desc(baverage)) %>%
                 mutate(rank = row_number())
         
         ### if game record is in our previously run analysis, we can just look it up
         
-        if(check_obs > 1) {
+        if(check_obs > 0) {
                 
                 # get game name
                 game = unsupervised_neighbors %>%
@@ -57,7 +60,7 @@ function(id) {
                         filter(game_id == id) %>%
                         #    filter(dataset == 'fundamentals, mechanics, and categories') %>%
                         select(dataset, game_id, name, neighbor_game_id, neighbor_name, similarity, dist, perc, yearpublished, rank, average, baverage, avgweight) %>%
-                        filter(yearpublished < 2021) %>%
+                        filter(yearpublished < 2022) %>%
                         mutate(game_id = as.character(game_id),
                                neighbor_game_id = as.character(neighbor_game_id),
                                yearpublished = as.character(yearpublished)) %>%
@@ -82,7 +85,7 @@ function(id) {
                 
         } else {
                 
-                paste("game not in existing dataset; pulling game info from BGG and calculating...")
+                print("game not in existing dataset; pulling game info from BGG and calculating...")
                 
                 # if the game isn't present, we need to go grab it and then add it to our existing games
                 game_record = get_game_record(id) %>%
@@ -228,7 +231,6 @@ function(id) {
 
         # convert to flextable
         neighbors_table_ft = neighbors_table %>%
-                filter(Comparing_By == "fundamentals, mechanics, and categories") %>%
                 select(Rank, Similarity, Published, ID, Neighbor, BGGRating, GeekRating, Complexity) %>%
                 filter(Rank <=25) %>%
              #   select(-Game) %>%
@@ -244,7 +246,7 @@ function(id) {
                 bg(., j = c("BGGRating"),
                    bg = average_func) %>%
                 bg(., j = c("Complexity"),
-                   bg = avgweight_func) 
+                   bg = avgweight_func)
         
         
         # now make plot
@@ -301,17 +303,21 @@ function(id) {
         
         # closest IDs
         compare = c(neighbors_table %>%
-                            filter(Comparing_By == "fundamentals, mechanics, and categories") %>%
                             filter(Rank <=6) %>%
                             pull(ID))
+        
         # all neighbor IDs
         compare_full = c(neighbors_table %>%
-                            filter(Comparing_By == "fundamentals, mechanics, and categories") %>%
                             pull(ID))
         # all neighbors
         neighbors = c(game, neighbors_table %>%
-                                 filter(Comparing_By == "fundamentals, mechanics, and categories") %>%
-                                 pull(Neighbor)) %>%
+                              group_by(Neighbor) %>%
+                              mutate(dupe = n_distinct(Neighbor)) %>%
+                              mutate(Neighbor = case_when(Neighbor == game ~ paste(Neighbor, Published, sep="_"),
+                                                          dupe > 1 ~ paste(Neighbor, Published, sep="_"),
+                                                          TRUE ~ Neighbor)) %>%
+                              ungroup() %>%
+                              pull(Neighbor)) %>%
                 rev()
         
         # place on principal components
@@ -338,7 +344,7 @@ function(id) {
                                      y=scale,
                                      label = name),
                                  position = pos2,
-                                 max.overlaps=10,
+                                 max.overlaps=15,
                                  show.legend=F,
                                  size = 3)+
                 guides(label = "none",
@@ -430,7 +436,7 @@ function(id) {
                                color = name,
                                y=PC2),
                            size =3,
-                           max.overlaps = 8)+
+                           max.overlaps = 15)+
                 guides(label = "none",
                        color = "none",
                        size = "none")+
@@ -444,10 +450,12 @@ function(id) {
         # tile plot
         tile_plot = profile_df %>%
                 filter(game_id %in% c(id, compare_full)) %>%
+           #     mutate(name = paste(name, game_id, sep="_")) %>%
                 mutate(name = factor(abbreviate(name,
                                                 minlength=30),
                                      levels = abbreviate(neighbors,
                                                          minlength=30))) %>%
+                mutate(scale_round = round(scale, 2)) %>%
                 ggplot(., aes(x=variable,
                               y=name,
                               color = scale,
