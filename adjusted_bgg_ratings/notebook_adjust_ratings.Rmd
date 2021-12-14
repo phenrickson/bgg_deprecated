@@ -1,6 +1,6 @@
 ---
-title: "Inspecting and Adjusting Ratings from Boardgamegeek.com"
-author: Phil Henrickson
+title: "Inspecting and Adjusting BGG Ratings"
+author: github.com/phenrickson/bgg
 date: "`r Sys.Date()`"
 output: 
   html_document:
@@ -9,9 +9,11 @@ output:
         number_sections: true
 ---
 
-## What is this Analysis?
+# What is this Analysis?
 
-This notebook is for examining current BGG Geek Ratings and computing different versions of these ratings, **adjusting for a tendency of the BGG ratings to skew towards complex and recently released games**. This is not a novel contribution, but this notebook aims to explain some of the considerations behind calculating different ratings for games as well as refresh these ratings frequently off a live connection to the BGG database.
+This notebook is for examining current ratings from boardgamegeek.com with the aim of computing different versions of these ratings. The main goal is to compute alternative ranks to **adjust for a tendency of the BGG ratings to skew towards complex and recently released games**. This is not a novel contribution, but this notebook aims to explain some of the considerations behind calculating different ratings for games as well as refresh these ratings frequently off a live connection to the BGG database.
+
+For further analysis and projects related to boardgamegeek data, see github.com/phenrickson/bgg
 
 ```{r global settings, echo=F, warning=F, message=F}
 
@@ -65,7 +67,7 @@ active_games<-DBI::dbGetQuery(bigquerycon,
 
 ```
 
-## Examining BGG Ratings
+# Examining BGG Ratings
 
 We'll load in data previously pulled from BGG and begin our analysis. There are a couple of different variables we're interested in exploring: the average rating, the geek rating, and the average weight, or complexity. For the average and geek ratings, votes can range from 1 to 10.
 
@@ -82,7 +84,7 @@ active_games %>%
   theme_phil()
 ```
 
-The geek rating is the game's average plus around 1000 baseline 5.5 votes added, which serve as a prior to prevent games with few ratings from moving to the top of teh geek list.
+The geek rating is the game's average plus around 1000 baseline 5.5 votes added, which serve as a prior to prevent games with few ratings from moving to the top of the geek list.
 
 Additionally, users can rate the **complexity** of games on BGG, where games with a complexity of 1 are very simple where games with a complexity of 5 are extremely difficult to learn.
 
@@ -334,7 +336,7 @@ active_games %>%
 
 ```
 
-## Complexity Adjusted Ratings
+# Complexity Adjusted Ratings
 
 The geek ratings on BGG are highly influential, but they are heavily skewed towards complex games. This means that "normal people" will have a hard time using the games that are highly rated on BGG. If we look at the top 100 games on BGG, we can see that they tend to fall on the heavier side in terms of game complexity.
 
@@ -407,7 +409,7 @@ active_games %>%
 
 We want a list of games that isn't so heavily skewed towards complexity. We want to "control for" the influence of complexity on the rating. That is, if we take the variation in the average ratings that isn't explained by complexity, which games still have high ratings? 
 
-### Fitting a Simple Regression
+## Fitting a Simple Regression
 
 To do this, wwe need the *residuals* from a regression of average rating on complexity - these will be the variation in game ratings that are *not explained* by complexity. We will fit the model and inspect the results.
 
@@ -445,8 +447,6 @@ complexity_model %>%
 The intercept indicates the average rating of a game with a complexity of 0, which is kind of nonsensical. The coefficient indicates the effect of a unit increase in the complexity of a game on the average rating. Putting these two together tells us that a game with a complexity rating of 1 would have a rating of `r round(predict(complexity_model$model[[1]], newdata = data.frame(avgweight = 1), se=T) %>% as.data.frame() %>% pull(fit),2)`. A game with a complexity rating of 5, meanwhile, would have a weight of `r round(predict(complexity_model$model[[1]], newdata = data.frame(avgweight = 5), se=T) %>% as.data.frame() %>% pull(fit),2)`.
 
 The model indicates that the complexity of a game explains about 26% of the variation in average ratings (R-squared, which simply is the correlation coefficient (R) we saw earlier squared). So it's not the only thing that matters, but it has a pretty sizeable impact on the average rating and the corresponding geek rating.
-
-### Residuals
 
 We don't really care about the model per se, we just want to get the residuals.
 
@@ -486,7 +486,10 @@ complexity_model %>%
         select(yearpublished, game_id, name, usersrated, average, baverage, .resid, avgweight) %>%
         mutate(adj_average = .resid + mean(average, na.rm=T)) %>%
         arrange(desc(adj_average)) %>%
-        mutate_if(is.numeric, round, 2)
+        mutate_if(is.numeric, round, 2) %>%
+  head(25) %>%
+  flextable() %>%
+  flextable::autofit()
 
 ```
 
@@ -506,7 +509,7 @@ complexity_adjusted_ratings <- complexity_model %>%
                game_id = as.character(game_id))
 ```
 
-### Examining the Top Complexity-Adjusted Games
+## Examining the Top Complexity-Adjusted Games
 
 We can put this all together to now look at games that are rated highly after adjusting for the effect of complexity. We'll look at the top 250 to keep it simple.
 
@@ -535,7 +538,7 @@ complexity_adjusted_ratings %>%
 
 This gets us a list of games that is wildly different than before, and it's a list of games that are much more palatable to "normal people". In my mind, Crokinole taking the top spot makes a ton of sense and I will die on this hill.
 
-### Comparing Geek and Complexity Adjusted Ratings
+## Comparing Geek and Complexity Adjusted Ratings
 
 Which games have moved up and down the most? We can look at the difference between the BGG Rank and the Complexity adjusted ranks.
 
@@ -645,7 +648,7 @@ complexity_adjusted_ratings %>%
 
 ```
 
-### Movement within BGG Top 100
+## Movement within BGG Top 100
 
 Let's restrict to games inside the BGG Top 100 and see how these games are affected.
 
@@ -687,9 +690,13 @@ complexity_adjusted_ratings %>%
 
 It's important to remember that this is meant to be a ranking list for someone who sees complexity as a negative moreso than a positive. Terra Mystica and Gaia Project might be great games for someone like me who is into the hobby, but would it rank highly for someone who isn't that keen on games? Probably not.
 
-## Effect of Complexity on Average Rating over Time
+# Complexity and BGG Ratings over Time
 
-How has the relationship been complexity and average rating changed over time? We can plot complexity versus the average BGG rating by every year since 1970.
+How has the relationship been complexity and average rating changed over time? 
+
+## Complexity and the Average Rating
+
+We can plot complexity versus the average BGG rating by every year since 1970.
 
 ```{r scatterplot of relationship over time, warning=F, message=F, fig.height=10}
 
@@ -795,7 +802,7 @@ complexity_by_year %>%
 
 If I'm thinking about this correctly, this would mean that complexity has mostly had the same impact on the Average Rating over time, though post 2000 we might be seeing a decrease in the effect of complexity. Now I'd imagine that that is because we see newer games with relatively few votes that get a pretty high average rating even if they aren't all that complex. 
 
-## Effect of Complexity on Geek Rating over Time
+## Complexity and the Geek Rating over Time
 
 What if we look at the effect of complexity on the geek rating?
 
@@ -899,11 +906,11 @@ Okay so this pretty much explains what's going on with the skew towards complex 
 
 It's not that complexity games are getting higher ratings over time, it's that **complex games are attracting a larger share of the user ratings**, particularly since the early 2000s. I would imagine that as the marketplace has become more and more crowded with games, the boardgamegeek community has started to consolidate around more complex games that emerge as the cream of the crop. Complex games get purchased more, attract more user ratings, and end up shooting up the Geek list.
 
-## Adjusting for "The Hotness" - Getting Better Geek Ratings
+# Adjusting for "The Hotness" in BGG Ratings
 
 The list of complexity adjusted games is pretty great for recommending games to a beginner, but it's not as helpful for people who have been in the hobby longer. If you *do* like more complex games, what list should you look at? The Geek list as it currently stands is still probably good, but its not without its problems.
 
-The Geek Ratings are heavily skewed towards games that have been released in recent years: all of the top 10 games were released after 2015, and only 5 of the top 50 were released prior to 2010. Either we truly seeing the pinnacle of game design in the last 10 years (this is possible), or it means that the BGG users have a tendency to seek out and rate the hotness, which skews the list towards recent games.
+The Geek Ratings are heavily skewed towards games that have been released in recent years: all of the top 10 games were released after 2015, and only 5 of the top 50 were released prior to 2010. Either we truly seeing the pinnacle of game design in the last 10 years (this is possible), or it means that the BGG users have a tendency to seek out and rate the hotness, which skews the list towards recent games. 
 
 ```{r show the hotness effect on bgg ratings}
 
@@ -923,11 +930,11 @@ active_games %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(., i = ~ (YearPublished %in% seq(2010, 2015, 1)),
-     bg = 'grey80') %>%
+     bg = 'grey90') %>%
     bg(., i = ~ (YearPublished %in% seq(2015, 2018, 1)),
-     bg = 'grey70') %>%
+     bg = 'grey80') %>%
       bg(., i = ~ (YearPublished %in% seq(2019, 2020, 1)),
-     bg = 'grey60')
+     bg = 'grey70')
 
 ```
 
@@ -958,7 +965,7 @@ active_games %>%
 
 This isn't a problem per se, but it does mean that two games might actually be pretty similar in quality, but the one released more recently draws lots of user ratings, and so it gets a big boost to its rating on the Geek list.
 
-### Varying the Number of Baseline Votes
+## Varying the Number of Baseline Votes
 
 Fortunately for us, we can adjust for this in a pretty simple way by upping the number of baseline 5.5 votes for every single game. Rather than using the 1000 or so that BGG uses, we'll toggle the number of baseline ratings at various thresholds up to 100,000 votes and see how the rankings start to change. Games that maintain a high ranking at each threshold will be games that have both a large number of user ratings and a high average. Games that are sensitive to the number of baseline user ratings will be ones that are 'inflated' in the current ranking system.
 
@@ -1077,7 +1084,7 @@ What do we find? There's no getting around the fact that Gloomhaven is going to 
 
 There's no *correct* number of votes to add, but it is interesting to see how games are affected by having more votes. If we add 100k votes we basically end up with a list that penalizes recent games to enter the top 100 (Gloomhaven Jaws of the Lion, Marvel Champions, Rising Sun, Underwater Cities, Dune Imperium) and provides a boost to some of the pillars of the board game renaissance Pandemic, Ticket to Ride, Pandemic, 7 Wonders, Puerto Rico, Agricola. Man, evidently Terraforming Mars is really good?
 
-### Top Games with 100k Votes Added
+## Top Board Games with 100k Votes Added
 
 ```{r look at top 10 by various thresholds}
 
