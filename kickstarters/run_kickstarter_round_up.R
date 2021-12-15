@@ -13,7 +13,7 @@ file = as_tibble(u) %>%
         mutate(date_char = str_to_title(gsub("_", " ", substr(post_date, 1, 11)))) %>%
         pull(post_date)
         
-rmarkdown::render("kickstarter_roundup.Rmd", 
+rmarkdown::render(here::here("kickstarters/kickstarter_roundup.Rmd"), 
                   params = list(url = u),
                   output_file =  file,
-                  output_dir = "kickstarter_roundup_tables")
+                  output_dir = here::here("kickstarters/roundup_tables"))
