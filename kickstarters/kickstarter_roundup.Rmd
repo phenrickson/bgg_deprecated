@@ -22,8 +22,8 @@ options(knitr.duplicate.label = "allow")
 
 options(scipen=999)
 
-source("load_packages.R")
-source("theme_phil.R")
+source(here::here("scripts/load_packages.R"))
+source(here::here("functions/theme_phil.R"))
 library(plumber)
 library(rvest)
 library(htmltab)
@@ -88,11 +88,11 @@ games = tidy_bgg_links %>%
         select(type, id, name)
 
 # function for loading game by id
-source("functions/get_game_record.R")
+source(here::here("functions/get_game_record.R"))
 # function for reading in current bgg data
-source("functions/get_bgg_data_from_github.R")
+source(here::here("functions/get_bgg_data_from_github.R"))
 # function for predicting with trained model
-source("functions/bake_and_predict_avgweight_and_ratings.R")
+source(here::here("functions/bake_and_predict_avgweight_and_ratings.R"))
 # # function for plotting posterior
 # source("functions/plot_posterior.R")
 
@@ -138,51 +138,10 @@ Link to Reddit post:`r params$url`
 
 ```{r create flextable, warning=F, message=F}
 
-# geek rating
-baverage_func<- function(x) {
-        
-        breaks = seq(5.5, 8.3, 0.1)
-        colorRamp=colorRampPalette(c("white", "deepskyblue1"))
-        col_palette <- colorRamp(length(breaks))
-        mycut <- cut(x, 
-                     breaks = breaks,
-                     include.lowest = TRUE, 
-                     right=T,
-                     label = FALSE)
-        col_palette[mycut]
-        
-}
-
-# avg rating
-average_func<- function(x) {
-        
-        breaks = seq(6.5, 9.5, 0.1)
-        colorRamp=colorRampPalette(c("white", "deepskyblue1"))
-        col_palette <- colorRamp(length(breaks))
-        mycut <- cut(x, 
-                     breaks = breaks,
-                     include.lowest = TRUE, 
-                     right=T,
-                     label = FALSE)
-        col_palette[mycut]
-        
-}
-
-# avgweight
-avgweight_func<- function(x) {
-  
-  breaks<-seq(1, 5, 0.1)
-#  breaks = weight_deciles
-  colorRamp=colorRampPalette(c("white", "red"))
-  col_palette <- colorRamp(length(breaks))
-  mycut <- cut(x, 
-    breaks = breaks,
-    include.lowest = TRUE, 
-    right=T,
-    label = FALSE)
-  col_palette[mycut]
-  
-}
+# add color to tables
+source(here::here("functions/baverage_func.R"))
+source(here::here("functions/average_func.R"))
+source(here::here("functions/avgweight_func.R"))
 
 # edit
 tidy_table = table %>%
