@@ -14,6 +14,9 @@ library(tidyverse)
 library(foreach)
 
 user_list = c("mrbananagrabber",
+              "rahdo",
+              "Quinns",
+              "Ogzz",
               "GOBbluth89")
 
 # run through
