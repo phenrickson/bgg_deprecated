@@ -418,6 +418,7 @@ To do this, wwe need the *residuals* from a regression of average rating on comp
 # fit model
 complexity_model<-active_games %>%
         filter(!is.na(avgweight)) %>%
+        filter(!is.na(baverage)) %>%
         nest() %>%
         mutate(model = map(data, ~ lm(average ~ avgweight,
                                                     data = .x))) %>%
@@ -1105,7 +1106,7 @@ votes_added_games %>%
          `100k` = votes_100000) %>%
   select(Name, YearPublished, Rank, Average, `1k`,`2k`, `5k`, `10k`, `25k`, `50k`, `100k`) %>%
   arrange(`100k`) %>%
-  head(25) %>%
+  head(100) %>%
   flextable() %>%
   flextable::autofit() %>%
   bg(j = c("1k",
