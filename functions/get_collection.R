@@ -1,7 +1,7 @@
 get_collection <-
 function(username_string) {
         
-        source("functions/retry.R")
+        source(here::here("functions/retry.R"))
         
         # get collection data from specified users
         collection_obj<- suppressWarnings({

@@ -17,7 +17,7 @@ function(input_date) {
                        users_rated = `Users rated`,
                        bgg_url = URL,
                        thumbnail = Thumbnail) %>%
-                select(date, everything())
+                dplyr::select(date, everything())
         
         return(data)
         

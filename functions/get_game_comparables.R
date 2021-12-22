@@ -2,11 +2,11 @@ get_game_comparables <-
 function(id) {
         
         # load function
-        source("functions/get_game_record.R")
-        source("functions/baverage_func.R")
-        source("functions/average_func.R")
-        source("functions/avgweight_func.R")
-        source("theme_phil.R")
+        source(here::here("functions/get_game_record.R"))
+        source(here::here("functions/baverage_func.R"))
+        source(here::here("functions/average_func.R"))
+        source(here::here("functions/avgweight_func.R"))
+        source(here::here("functions/theme_phil.R"))
         
         # load active files
         unsupervised_obj = 
