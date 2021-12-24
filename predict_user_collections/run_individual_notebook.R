@@ -7,6 +7,9 @@ users = list.files(here::here("predict_user_collections/individual_reports")) %>
         as_tibble() %>%
         mutate(value = gsub(".html", "", value)) %>%
         mutate(value = gsub("_copy", "", value)) %>%
+        mutate(value = gsub("_2016", "", value)) %>%
+        mutate(value = gsub("_2017", "", value)) %>%
+        mutate(value = gsub("_2018", "", value)) %>%
         mutate(value = gsub("_2019", "", value)) %>%
         mutate(value = gsub("_2020", "", value)) %>%
         mutate(value = gsub("_2", "", value)) %>%
@@ -18,6 +21,7 @@ user_list = users$username
 year_end = 2019
 
 user_list = 'Donkler'
+year_end = 2018
 
 # run
 foreach(i=1:length(user_list)) %do% {
