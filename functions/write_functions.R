@@ -542,37 +542,37 @@ bake_and_predict_ratings<- function(id,
         
         id = as.integer(id)
         
-        source(here::here("deployment/get_game_record.R"))
+        source(here::here("functions/get_game_record.R"))
         
-        # get training set
-        all_files = list.files(here::here("deployment"))
-        files = all_files[grepl("games|oos|recipe|preds|models", all_files)]
-        
-        # # get dataset
-        most_recent_games = all_files[grepl("games_datasets_ratings", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name2) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
-                pull(path)
-        
-        # get most recent recipe
-        most_recent_recipe = all_files[grepl("recipe_ratings", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name3) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rds", ".Rds", path)) %>%
-                pull(path)
+        # # get training set
+        # all_files = list.files(here::here("deployment"))
+        # files = all_files[grepl("games|oos|recipe|preds|models", all_files)]
+        # 
+        # # # get dataset
+        # most_recent_games = all_files[grepl("games_datasets_ratings", all_files)] %>%
+        #         as_tibble() %>%
+        #         separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
+        #                  extra = "merge",
+        #                  fill = "left") %>%
+        #         unite(name, name1:name2) %>%
+        #         mutate(date = as.Date(date)) %>%
+        #         filter(date == max(date)) %>%
+        #         unite(path, name:file) %>%
+        #         mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
+        #         pull(path)
+        # 
+        # # get most recent recipe
+        # most_recent_recipe = all_files[grepl("recipe_ratings", all_files)] %>%
+        #         as_tibble() %>%
+        #         separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
+        #                  extra = "merge",
+        #                  fill = "left") %>%
+        #         unite(name, name1:name3) %>%
+        #         mutate(date = as.Date(date)) %>%
+        #         filter(date == max(date)) %>%
+        #         unite(path, name:file) %>%
+        #         mutate(path = gsub("_Rds", ".Rds", path)) %>%
+        #         pull(path)
         
         # use function to get record from bgg
         suppressMessages({
@@ -580,19 +580,24 @@ bake_and_predict_ratings<- function(id,
                         mutate(number_designers = rowSums(across(starts_with("des_"))))
         })
         
-        # get training set
-        games_datasets = readr::read_rds(here::here("deployment", most_recent_games))
+        # get data used in model development
+        games_datasets = readr::read_rds(here::here("active/games_datasets_ratings.Rdata"))
+        # get models
+        models = readr::read_rds(here::here("active/models_ratings.Rds"))
+        # get recipe
+        rec <- readr::read_rds(here::here("active/recipe_ratings.Rdata"))
         
+        # bind to record
         record=   bind_rows(raw_record,
                             games_datasets$train[0,])
         
-        rec <- readr::read_rds(here::here("deployment", most_recent_recipe))
-        
+        # bake
         baked_record = bake(rec, record)
         
+        # to json... do i even need to do this/
         req = toJSON(baked_record)
         
-        #
+        # specify input model
         model =  enquo(trained_model)
         model = rlang::sym(paste(trained_model))
         
@@ -601,20 +606,20 @@ bake_and_predict_ratings<- function(id,
                 mutate_if(is.integer, as.numeric) %>%
                 mutate(timestamp = as_datetime(timestamp))
         
-        most_recent_models = all_files[grepl("trained_models_obj", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name3) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rds", ".Rds", path)) %>%
-                pull(path)
+        # most_recent_models = all_files[grepl("trained_models_obj", all_files)] %>%
+        #         as_tibble() %>%
+        #         separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
+        #                  extra = "merge",
+        #                  fill = "left") %>%
+        #         unite(name, name1:name3) %>%
+        #         mutate(date = as.Date(date)) %>%
+        #         filter(date == max(date)) %>%
+        #         unite(path, name:file) %>%
+        #         mutate(path = gsub("_Rds", ".Rds", path)) %>%
+        #         pull(path)
         
         # get most recent models
-        models = readr::read_rds(here::here("deployment", most_recent_models))
+        # models = readr::read_rds(here::here("deployment", most_recent_models))
         
         # geek rating
         model_baverage <- models %>%
@@ -1037,154 +1042,145 @@ get_models_and_training_data = function() {
 
 dump("get_models_and_training_data", file = "functions/get_models_and_training_data.R")
 
-
-
-
-
-
-
-
-
-
-# function for predicting and baking ratings
-bake_and_predict_ratings<- function(id,
-                                    trained_model) {
-        
-        require(tidyverse)
-        require(magrittr)
-        require(tidyverse)
-        require(broom)
-        require(data.table)
-        require(readr)
-        require(jsonlite)
-        require(rstan)
-        require(rstanarm)
-        require(recipes)
-        require(lubridate)
-        
-        id = as.integer(id)
-        
-        source(here::here("deployment/get_game_record.R"))
-        
-        # get training set
-        all_files = list.files(here::here("deployment"))
-        files = all_files[grepl("games|oos|recipe|preds|models", all_files)]
-        
-        # # get dataset
-        most_recent_games = all_files[grepl("games_datasets_ratings", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name2) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
-                pull(path)
-        
-        # get most recent recipe
-        most_recent_recipe = all_files[grepl("recipe_ratings", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name3) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rds", ".Rds", path)) %>%
-                pull(path)
-        
-        # use function to get record from bgg
-        suppressMessages({
-                raw_record = get_game_record(id) %>%
-                        mutate(number_designers = rowSums(across(starts_with("des_"))))
-        })
-        
-        # get training set
-        games_datasets = readr::read_rds(here::here("deployment", most_recent_games))
-        
-        record=   bind_rows(raw_record,
-                            games_datasets$train[0,])
-        
-        rec <- readr::read_rds(here::here("deployment", most_recent_recipe))
-        
-        baked_record = bake(rec, record)
-        
-        req = toJSON(baked_record)
-        
-        #
-        model =  enquo(trained_model)
-        model = rlang::sym(paste(trained_model))
-        
-        # parse example from json
-        parsed_example <- jsonlite::fromJSON(req) %>%
-                mutate_if(is.integer, as.numeric) %>%
-                mutate(timestamp = as_datetime(timestamp))
-        
-        most_recent_models = all_files[grepl("trained_models_obj", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name3) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rds", ".Rds", path)) %>%
-                pull(path)
-        
-        # get most recent models
-        models = readr::read_rds(here::here("deployment", most_recent_models))
-        
-        # geek rating
-        model_baverage <- models %>%
-                filter(outcome_type == 'baverage') %>%
-                select(!!model) %>%
-                pull()
-        
-        # get first element
-        model_baverage = model_baverage[[1]]
-        
-        # average rating
-        model_average <- models %>%
-                filter(outcome_type == 'average') %>%
-                select(!!model) %>%
-                pull()
-        
-        # get first element
-        model_average = model_average[[1]]
-        
-        # now predict
-        prediction_baverage <- predict(model_baverage, new_data = parsed_example) %>%
-                as_tibble() %>%
-                set_names("baverage")
-        
-        prediction_average <- predict(model_average, new_data = parsed_example) %>%
-                as_tibble() %>%
-                set_names("average")
-        
-        # now combine
-        estimate = dplyr::bind_cols(parsed_example %>%
-                                            select(yearpublished, game_id, name),
-                                    prediction_baverage,
-                                    prediction_average) %>%
-                mutate_if(is.numeric, round, 2) %>%
-                melt(., id.vars = c("yearpublished", "game_id", "name")) %>%
-                rename(outcome = variable,
-                       pred = value) %>%
-                mutate(method = paste(trained_model)) %>%
-                select(method, everything())
-        
-        out = list("estimate" = estimate,
-                   "record" = req)
-        
-        out
-        
-}
-
-dump("bake_and_predict_ratings", file="functions/bake_and_predict_ratings.R")
+# # function for predicting and baking ratings
+# bake_and_predict_ratings<- function(id,
+#                                     trained_model) {
+#         
+#         require(tidyverse)
+#         require(magrittr)
+#         require(tidyverse)
+#         require(broom)
+#         require(data.table)
+#         require(readr)
+#         require(jsonlite)
+#         require(rstan)
+#         require(rstanarm)
+#         require(recipes)
+#         require(lubridate)
+#         
+#         id = as.integer(id)
+#         
+#         source(here::here("deployment/get_game_record.R"))
+#         
+#         # get training set
+#         all_files = list.files(here::here("deployment"))
+#         files = all_files[grepl("games|oos|recipe|preds|models", all_files)]
+#         
+#         # # get dataset
+#         most_recent_games = all_files[grepl("games_datasets_ratings", all_files)] %>%
+#                 as_tibble() %>%
+#                 separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
+#                          extra = "merge",
+#                          fill = "left") %>%
+#                 unite(name, name1:name2) %>%
+#                 mutate(date = as.Date(date)) %>%
+#                 filter(date == max(date)) %>%
+#                 unite(path, name:file) %>%
+#                 mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
+#                 pull(path)
+#         
+#         # get most recent recipe
+#         most_recent_recipe = all_files[grepl("recipe_ratings", all_files)] %>%
+#                 as_tibble() %>%
+#                 separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
+#                          extra = "merge",
+#                          fill = "left") %>%
+#                 unite(name, name1:name3) %>%
+#                 mutate(date = as.Date(date)) %>%
+#                 filter(date == max(date)) %>%
+#                 unite(path, name:file) %>%
+#                 mutate(path = gsub("_Rds", ".Rds", path)) %>%
+#                 pull(path)
+#         
+#         # use function to get record from bgg
+#         suppressMessages({
+#                 raw_record = get_game_record(id) %>%
+#                         mutate(number_designers = rowSums(across(starts_with("des_"))))
+#         })
+#         
+#         # get training set
+#         games_datasets = readr::read_rds(here::here("deployment", most_recent_games))
+#         
+#         record=   bind_rows(raw_record,
+#                             games_datasets$train[0,])
+#         
+#         rec <- readr::read_rds(here::here("deployment", most_recent_recipe))
+#         
+#         baked_record = bake(rec, record)
+#         
+#         req = toJSON(baked_record)
+#         
+#         #
+#         model =  enquo(trained_model)
+#         model = rlang::sym(paste(trained_model))
+#         
+#         # parse example from json
+#         parsed_example <- jsonlite::fromJSON(req) %>%
+#                 mutate_if(is.integer, as.numeric) %>%
+#                 mutate(timestamp = as_datetime(timestamp))
+#         
+#         most_recent_models = all_files[grepl("trained_models_obj", all_files)] %>%
+#                 as_tibble() %>%
+#                 separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
+#                          extra = "merge",
+#                          fill = "left") %>%
+#                 unite(name, name1:name3) %>%
+#                 mutate(date = as.Date(date)) %>%
+#                 filter(date == max(date)) %>%
+#                 unite(path, name:file) %>%
+#                 mutate(path = gsub("_Rds", ".Rds", path)) %>%
+#                 pull(path)
+#         
+#         # get most recent models
+#         models = readr::read_rds(here::here("deployment", most_recent_models))
+#         
+#         # geek rating
+#         model_baverage <- models %>%
+#                 filter(outcome_type == 'baverage') %>%
+#                 select(!!model) %>%
+#                 pull()
+#         
+#         # get first element
+#         model_baverage = model_baverage[[1]]
+#         
+#         # average rating
+#         model_average <- models %>%
+#                 filter(outcome_type == 'average') %>%
+#                 select(!!model) %>%
+#                 pull()
+#         
+#         # get first element
+#         model_average = model_average[[1]]
+#         
+#         # now predict
+#         prediction_baverage <- predict(model_baverage, new_data = parsed_example) %>%
+#                 as_tibble() %>%
+#                 set_names("baverage")
+#         
+#         prediction_average <- predict(model_average, new_data = parsed_example) %>%
+#                 as_tibble() %>%
+#                 set_names("average")
+#         
+#         # now combine
+#         estimate = dplyr::bind_cols(parsed_example %>%
+#                                             select(yearpublished, game_id, name),
+#                                     prediction_baverage,
+#                                     prediction_average) %>%
+#                 mutate_if(is.numeric, round, 2) %>%
+#                 melt(., id.vars = c("yearpublished", "game_id", "name")) %>%
+#                 rename(outcome = variable,
+#                        pred = value) %>%
+#                 mutate(method = paste(trained_model)) %>%
+#                 select(method, everything())
+#         
+#         out = list("estimate" = estimate,
+#                    "record" = req)
+#         
+#         out
+#         
+# }
+# 
+# dump("bake_and_predict_ratings", file="functions/bake_and_predict_ratings.R")
 
 # function for baking and estimating bgg complexity
 bake_and_predict_avgweight<- function(id,
@@ -1204,38 +1200,39 @@ bake_and_predict_avgweight<- function(id,
         
         id = as.integer(id)
         
-        source(here::here("deployment/get_game_record.R"))
+        # get function for game record
+        source(here::here("functions/get_game_record.R"))
         
-        # get training set
-        all_files = list.files(here::here("deployment"))
-        files = all_files[grepl("games|oos|recipe|preds|models", all_files)]
-        
-        # # get dataset
-        most_recent_games = all_files[grepl("games_datasets_avgweight", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name2) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
-                pull(path)
-        
-        # get most recent recipe
-        most_recent_recipe = all_files[grepl("recipe_avgweight", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name3) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rds", ".Rds", path)) %>%
-                pull(path) 
-        
+        # # get training set
+        # all_files = list.files(here::here("deployment"))
+        # files = all_files[grepl("games|oos|recipe|preds|models", all_files)]
+        # 
+        # # # get dataset
+        # most_recent_games = all_files[grepl("games_datasets_avgweight", all_files)] %>%
+        #         as_tibble() %>%
+        #         separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
+        #                  extra = "merge",
+        #                  fill = "left") %>%
+        #         unite(name, name1:name2) %>%
+        #         mutate(date = as.Date(date)) %>%
+        #         filter(date == max(date)) %>%
+        #         unite(path, name:file) %>%
+        #         mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
+        #         pull(path)
+        # 
+        # # get most recent recipe
+        # most_recent_recipe = all_files[grepl("recipe_avgweight", all_files)] %>%
+        #         as_tibble() %>%
+        #         separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
+        #                  extra = "merge",
+        #                  fill = "left") %>%
+        #         unite(name, name1:name3) %>%
+        #         mutate(date = as.Date(date)) %>%
+        #         filter(date == max(date)) %>%
+        #         unite(path, name:file) %>%
+        #         mutate(path = gsub("_Rds", ".Rds", path)) %>%
+        #         pull(path) 
+        # 
         # use function to get record from bgg
         suppressMessages({
                 raw_record = get_game_record(id) %>%
@@ -1243,12 +1240,15 @@ bake_and_predict_avgweight<- function(id,
         })
         
         # get training set
-        games_datasets = readr::read_rds(here::here("deployment", most_recent_games))
-        
+        # get data used in model development
+        games_datasets = readr::read_rds(here::here("active/games_datasets.Rdata"))
+        # get models
+        models = readr::read_rds(here::here("active/models_complexity.Rds"))
+        # get recipe
+        rec <- readr::read_rds(here::here("active/recipe_complexity.Rdata"))
+
         record=   bind_rows(raw_record,
                             games_datasets$train[0,])
-        
-        rec <- readr::read_rds(here::here("deployment", most_recent_recipe))
         
         baked_record = bake(rec, record)
         
@@ -1263,20 +1263,20 @@ bake_and_predict_avgweight<- function(id,
                 mutate_if(is.integer, as.numeric) %>%
                 mutate(timestamp = as_datetime(timestamp))
         
-        most_recent_models = all_files[grepl("models_obj_avgweight", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name3) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rds", ".Rds", path)) %>%
-                pull(path)
-        
-        # get most recent models
-        models = readr::read_rds(here::here("deployment", most_recent_models))
+        # most_recent_models = all_files[grepl("models_obj_avgweight", all_files)] %>%
+        #         as_tibble() %>%
+        #         separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
+        #                  extra = "merge",
+        #                  fill = "left") %>%
+        #         unite(name, name1:name3) %>%
+        #         mutate(date = as.Date(date)) %>%
+        #         filter(date == max(date)) %>%
+        #         unite(path, name:file) %>%
+        #         mutate(path = gsub("_Rds", ".Rds", path)) %>%
+        #         pull(path)
+        # 
+        # # get most recent models
+        # models = readr::read_rds(here::here("deployment", most_recent_models))
         
         # geek rating
         model_avgweight<- models %>%
@@ -1312,7 +1312,6 @@ bake_and_predict_avgweight<- function(id,
 
 dump("bake_and_predict_avgweight", file="functions/bake_and_predict_avgweight.R")
 
-
 # estimate avgweight in order to estimate bgg complexity
 # function for predicting and baking avgweight
 bake_and_predict_avgweight_and_ratings<- function(id,
@@ -1332,37 +1331,37 @@ bake_and_predict_avgweight_and_ratings<- function(id,
         
         id = as.integer(id)
         
-        source(here::here("deployment/get_game_record.R"))
+        source(here::here("functions/get_game_record.R"))
         
-        # get training set
-        all_files = list.files(here::here("deployment"))
-        files = all_files[grepl("games|oos|recipe|preds|models", all_files)]
-        
-        # # get dataset
-        most_recent_games = all_files[grepl("games_datasets_avgweight", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name2) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
-                pull(path)
-        
-        # get most recent recipe
-        most_recent_recipe = all_files[grepl("recipe_avgweight", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name3) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rds", ".Rds", path)) %>%
-                pull(path) 
+        # # get training set
+        # all_files = list.files(here::here("deployment"))
+        # files = all_files[grepl("games|oos|recipe|preds|models", all_files)]
+        # 
+        # # # get dataset
+        # most_recent_games = all_files[grepl("games_datasets_avgweight", all_files)] %>%
+        #         as_tibble() %>%
+        #         separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
+        #                  extra = "merge",
+        #                  fill = "left") %>%
+        #         unite(name, name1:name2) %>%
+        #         mutate(date = as.Date(date)) %>%
+        #         filter(date == max(date)) %>%
+        #         unite(path, name:file) %>%
+        #         mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
+        #         pull(path)
+        # 
+        # # get most recent recipe
+        # most_recent_recipe = all_files[grepl("recipe_avgweight", all_files)] %>%
+        #         as_tibble() %>%
+        #         separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
+        #                  extra = "merge",
+        #                  fill = "left") %>%
+        #         unite(name, name1:name3) %>%
+        #         mutate(date = as.Date(date)) %>%
+        #         filter(date == max(date)) %>%
+        #         unite(path, name:file) %>%
+        #         mutate(path = gsub("_Rds", ".Rds", path)) %>%
+        #         pull(path) 
         
         # use function to get record from bgg
         suppressMessages({
@@ -1371,15 +1370,24 @@ bake_and_predict_avgweight_and_ratings<- function(id,
         })
         
         # get training set
-        games_datasets = readr::read_rds(here::here("deployment", most_recent_games))
+        games_datasets = readr::read_rds(here::here("active/games_datasets_ratings.Rdata"))
         
+        # get models
+        models_ratings <- readr::read_rds(here::here("active/models_ratings.Rds"))
+        models_complexity <- readr::read_rds(here::here("active/models_complexity.Rds"))
+        
+        # get recipes
+        rec_ratings <- readr::read_rds(here::here("active/recipe_ratings.Rdata"))
+        rec_complexity <- readr::read_rds(here::here("active/recipe_complexity.Rdata"))
+
+        # bind
         record=   bind_rows(raw_record,
                             games_datasets$train[0,])
+
+        # bakey
+        baked_record = bake(rec_complexity, record)
         
-        rec <- readr::read_rds(here::here("deployment", most_recent_recipe))
-        
-        baked_record = bake(rec, record)
-        
+        # to json
         req = toJSON(baked_record)
         
         #
@@ -1390,23 +1398,8 @@ bake_and_predict_avgweight_and_ratings<- function(id,
         parsed_example <- jsonlite::fromJSON(req) %>%
                 mutate_if(is.integer, as.numeric) %>%
                 mutate(timestamp = as_datetime(timestamp))
-        
-        most_recent_models = all_files[grepl("models_obj_avgweight", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name3) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rds", ".Rds", path)) %>%
-                pull(path)
-        
-        # get most recent models
-        models_complexity = readr::read_rds(here::here("deployment", most_recent_models))
-        
-        # geek rating
+
+        # get avgweight
         model_avgweight<- models_complexity %>%
                 filter(outcome_type == 'avgweight') %>%
                 select(xgbTree_fit) %>%
@@ -1434,64 +1427,66 @@ bake_and_predict_avgweight_and_ratings<- function(id,
                                         pred < 1 ~ 1,
                                         TRUE ~ pred))
         
-        # pull
+        # actual record
+        actual_weight_and_ratings = record %>%
+                select(timestamp, yearpublished, game_id, name, average, baverage, avgweight, usersrated)
         
+        # remove pieces we don't need at this point
         rm(model_avgweight,
            models_complexity,
-           games_datasets,
-           baked_record,
-           raw_record)
+           baked_record, 
+           req)
         
+        # ##### now push into models trained for baverage and average #####
+        # 
+        # # get training set
+        # most_recent_games = all_files[grepl("games_datasets_ratings", all_files)] %>%
+        #         as_tibble() %>%
+        #         separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
+        #                  extra = "merge",
+        #                  fill = "left") %>%
+        #         unite(name, name1:name2) %>%
+        #         mutate(date = as.Date(date)) %>%
+        #         filter(dteate == max(date)) %>%
+        #         unite(path, name:file) %>%
+        #         mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
+        #         pull(path)
+        # 
+        # # get most recent recipe
+        # most_recent_recipe = all_files[grepl("recipe_ratings", all_files)] %>%
+        #         as_tibble() %>%
+        #         separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
+        #                  extra = "merge",
+        #                  fill = "left") %>%
+        #         unite(name, name1:name3) %>%
+        #         mutate(date = as.Date(date)) %>%
+        #         filter(date == max(date)) %>%
+        #         unite(path, name:file) %>%
+        #         mutate(path = gsub("_Rds", ".Rds", path)) %>%
+        #         pull(path)
+        # 
+        # # use function to get record from bgg
+        # # then put in the estimated weight
+        # suppressMessages({
+        #         raw_record = get_game_record(id) %>%
+        #                 mutate(number_designers = rowSums(across(starts_with("des_")))) %>%
+        #                 mutate(avgweight = estimated_weight$pred) # adding in estimated weight
+        # })
         
-        ##### now push into models trained for baverage and average #####
+        # update the weight variable in the raw record
+        raw_record$avgweight = estimated_weight$pred
         
-        # get training set
-        most_recent_games = all_files[grepl("games_datasets_ratings", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name2) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rdata", ".Rdata", path)) %>%
-                pull(path)
-        
-        # get most recent recipe
-        most_recent_recipe = all_files[grepl("recipe_ratings", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2", "name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name3) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rds", ".Rds", path)) %>%
-                pull(path)
-        
-        # use function to get record from bgg
-        # then put in the estimated weight
-        suppressMessages({
-                raw_record = get_game_record(id) %>%
-                        mutate(number_designers = rowSums(across(starts_with("des_")))) %>%
-                        mutate(avgweight = estimated_weight$pred) # adding in estimated weight
-        })
-        
-        # get training set
-        games_datasets = readr::read_rds(here::here("deployment", most_recent_games))
-        
+        # bind raw to trained
         record=   bind_rows(raw_record,
                             games_datasets$train[0,])
         
-        rec <- readr::read_rds(here::here("deployment", most_recent_recipe))
+        # bake with rartings recie
+        baked_record = bake(rec_ratings, record)
         
-        baked_record = bake(rec, record)
-        
+        # to json
         req = toJSON(baked_record)
         
-        #
+        # get specified model
         model =  enquo(trained_model)
         model = rlang::sym(paste(trained_model))
         
@@ -1500,23 +1495,23 @@ bake_and_predict_avgweight_and_ratings<- function(id,
                 mutate_if(is.integer, as.numeric) %>%
                 mutate(timestamp = as_datetime(timestamp))
         
-        most_recent_models = all_files[grepl("trained_models_obj", all_files)] %>%
-                as_tibble() %>%
-                separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
-                         extra = "merge",
-                         fill = "left") %>%
-                unite(name, name1:name3) %>%
-                mutate(date = as.Date(date)) %>%
-                filter(date == max(date)) %>%
-                unite(path, name:file) %>%
-                mutate(path = gsub("_Rds", ".Rds", path)) %>%
-                pull(path)
-        
-        # get most recent models
-        models = readr::read_rds(here::here("deployment", most_recent_models))
-        
+        # most_recent_models = all_files[grepl("trained_models_obj", all_files)] %>%
+        #         as_tibble() %>%
+        #         separate(value, c("name1", "name2","name3", "date", "file"), sep = "([._])",
+        #                  extra = "merge",
+        #                  fill = "left") %>%
+        #         unite(name, name1:name3) %>%
+        #         mutate(date = as.Date(date)) %>%
+        #         filter(date == max(date)) %>%
+        #         unite(path, name:file) %>%
+        #         mutate(path = gsub("_Rds", ".Rds", path)) %>%
+        #         pull(path)
+        # 
+        # # get most recent models
+        # models = readr::read_rds(here::here("deployment", most_recent_models))
+        # 
         # geek rating
-        model_baverage <- models %>%
+        model_baverage <- models_ratings %>%
                 filter(outcome_type == 'baverage') %>%
                 select(!!model) %>%
                 pull()
@@ -1525,7 +1520,7 @@ bake_and_predict_avgweight_and_ratings<- function(id,
         model_baverage = model_baverage[[1]]
         
         # average rating
-        model_average <- models %>%
+        model_average <- models_ratings  %>%
                 filter(outcome_type == 'average') %>%
                 select(!!model) %>%
                 pull()
@@ -1554,7 +1549,8 @@ bake_and_predict_avgweight_and_ratings<- function(id,
                 mutate(method = paste(trained_model)) %>%
                 select(method, everything())
         
-        out = list("estimated_weight" = estimated_weight, 
+        out = list("actual_weight_and_rating" = actual_weight_and_ratings, 
+                   "estimated_weight" = estimated_weight, 
                    "estimated_rating" = estimated_rating,
                    "record" = req)
         

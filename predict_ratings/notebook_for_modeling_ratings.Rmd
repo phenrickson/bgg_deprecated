@@ -5,7 +5,7 @@ date: "`r Sys.Date()`"
 output: 
   html_document:
         toc: true
-        toc_depth: 3
+        toc_depth: 2
         number_sections: true
 params:
   end_training_year: 2018
@@ -129,18 +129,19 @@ game_artists<-DBI::dbGetQuery(bigquerycon,
 
 ```
 
-# What is this Analysis?
+# What is this Analysis? {-}
 
 This notebook is for building predictive models of the boardgamegeek community's average and geek ratings. Based on historical data, what features of games are associated with higher or lower ratings? Using what we learn, which upcoming games do we expect to be highly rated?
 
 To answer these questions, we'll make use of historical data from boardgamegeek. We will connect to a database containing game features and their current ratings. In training models, we will restrict ourselves to games published through `r params$end_training_year`. We will evaluate the performance of our models by evaluating their performance in predicting games published in `r params$end_training_year + 1`.
 
 The data we are using from boardgamegeek was last refreshed on **`r max(as.Date(active_games$timestamp))`**. 
+
 As of this date, there are **`r nrow(active_games)`** on boardgamegeek with at least 30 user ratings.
 
 For our analysis, we will train on games published before `r params$end_training_year + 1` that have achieved at least `r params$min_ratings` user ratings. This is a design decision to restrict our sample to games that 1) have received some evaluation from the community and 2) speed up the time in training models. We can later view this as a parameter for tuning, allowing more or less historical games to enter the model for training. Based on some initial tests, `r params$min_ratings` was a useful cutoff point for both model performance and training time.
 
-We are running this analysis on `r Sys.Date()`.
+We are running this analysis on **`r Sys.Date()`**.
 
 # Exploratory Data Analysis
 
@@ -545,7 +546,7 @@ game_publishers %>%
 
 We can do this same thing for designers, which won't necessarily need to be handled as delicately, though we'll want to set a minimum filter to see the top designers as it will skew towards people who have only published a few games. We'll filter to designers with at least 10 games to start. 
 
-```{r plot designers, warning=F, message=F, fig.height=10, fig.width=10}
+```{r plot designers, warning=F, message=F, fig.height=12, fig.width=10}
 
 min_games = 10
 
